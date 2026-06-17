@@ -6,6 +6,40 @@
 <title>ZC's Collection</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script defer data-domain="YOUR_GITHUB_PAGES_DOMAIN" src="https://plausible.io/js/script.js"></script>
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs, getDoc, onSnapshot, query, orderBy, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "FIREBASE_API_KEY",
+    authDomain: "FIREBASE_PROJECT_ID.firebaseapp.com",
+    projectId: "FIREBASE_PROJECT_ID",
+    storageBucket: "FIREBASE_PROJECT_ID.appspot.com",
+    messagingSenderId: "FIREBASE_SENDER_ID",
+    appId: "FIREBASE_APP_ID"
+  };
+
+  try {
+    const app = initializeApp(firebaseConfig);
+    window.firebaseApp = app;
+    window.firebaseAuth = getAuth(app);
+    window.firebaseDB = getFirestore(app);
+    window.firebaseStorage = getStorage(app);
+    window.firebaseModules = {
+      signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword,
+      collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs, getDoc,
+      onSnapshot, query, orderBy, runTransaction, serverTimestamp,
+      ref, uploadBytesResumable, getDownloadURL, deleteObject
+    };
+    window.dispatchEvent(new Event('firebase-ready'));
+  } catch(e) { console.warn('Firebase init failed:', e); }
+</script>
+<!-- Markdown rendering + XSS protection -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.9/purify.min.js"></script>
 <style>
   /* ===== RESET & BASE ===== */
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -21,6 +55,12 @@
     --teal: #3DB8A2;
     --border: rgba(242, 237, 228, 0.08);
     --grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    --panel-bg: #1E1B17;
+    --input-bg: #2A2620;
+    --input-border: rgba(242,237,228,0.12);
+    --success: #4CAF50;
+    --error: #E53935;
+    --overlay: rgba(13,11,9,0.92);
   }
 
   body {
@@ -73,6 +113,118 @@
     box-shadow: 0 0 12px var(--accent-glow);
     animation: pulse 2s ease-in-out infinite;
   }
+
+  /* ===== IDENTITY MODAL ===== */
+  .identity-overlay {
+    position: fixed; inset: 0; z-index: 300;
+    background: var(--overlay); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.4s ease; pointer-events: none;
+  }
+  .identity-overlay.active { opacity: 1; pointer-events: all; }
+  .identity-modal {
+    width: 380px; max-width: calc(100vw - 32px);
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 40px 32px 28px; text-align: center;
+  }
+  .identity-modal .brand { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 28px; letter-spacing: 0.12em; color: var(--text); margin-bottom: 8px; }
+  .identity-modal .subtitle { font-size: 14px; color: var(--text-dim); margin-bottom: 32px; }
+  .identity-btn { display: block; width: 100%; padding: 14px 20px; border-radius: 100px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.25s; margin-bottom: 12px; }
+  .identity-btn.visitor { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
+  .identity-btn.visitor:hover { color: var(--text); border-color: rgba(242,237,228,0.2); }
+  .identity-btn.admin { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
+  .identity-btn.admin:hover { background: var(--accent-glow); box-shadow: 0 4px 20px rgba(232,93,38,0.3); }
+  .identity-form { display: none; margin-top: 8px; }
+  .identity-form.active { display: block; }
+  .identity-input { width: 100%; padding: 12px 16px; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; margin-bottom: 12px; }
+  .identity-input:focus { border-color: var(--accent); }
+  .identity-input.error { border-color: var(--error); }
+  .identity-error { font-size: 12px; color: var(--error); margin-bottom: 8px; display: none; }
+  .identity-error.visible { display: block; }
+  .identity-lock-msg { font-size: 13px; color: var(--text-dim); margin-top: 12px; display: none; }
+  .identity-lock-msg.visible { display: block; }
+  .identity-verify-btn { width: 100%; padding: 12px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.25s; }
+  .identity-verify-btn:hover { background: var(--accent-glow); }
+  .identity-verify-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .identity-privacy { font-size: 10px; color: rgba(184,175,166,0.5); margin-top: 24px; line-height: 1.6; }
+
+  /* ===== ADMIN TOOLBAR ===== */
+  .admin-toolbar { position: fixed; bottom: 28px; right: 28px; z-index: 150; display: none; flex-direction: column; align-items: flex-end; gap: 12px; }
+  .admin-toolbar.visible { display: flex; }
+  .toolbar-btn { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-dim); font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.25s; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+  .toolbar-btn:hover { color: var(--text); border-color: rgba(242,237,228,0.2); }
+  .toolbar-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 56px; height: 56px; font-size: 24px; }
+  .toolbar-btn.primary:hover { background: var(--accent-glow); box-shadow: 0 4px 24px rgba(232,93,38,0.4); }
+  .toolbar-menu { display: none; flex-direction: column; gap: 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .toolbar-menu.open { display: flex; }
+  .toolbar-menu-item { padding: 10px 16px; font-size: 13px; color: var(--text-dim); cursor: pointer; border-radius: 8px; transition: all 0.2s; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+  .toolbar-menu-item:hover { color: var(--text); background: rgba(242,237,228,0.04); }
+  .toolbar-menu-icon { font-size: 16px; width: 20px; text-align: center; }
+
+  /* ===== UPLOAD PANEL ===== */
+  .upload-overlay { position: fixed; inset: 0; z-index: 249; background: rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+  .upload-overlay.active { opacity: 1; pointer-events: all; }
+  .upload-panel { position: fixed; top: 0; right: -440px; width: 420px; height: 100vh; z-index: 250; background: var(--bg-card); border-left: 1px solid var(--border); overflow-y: auto; transition: right 0.35s cubic-bezier(0.25,0.46,0.45,0.94); padding: 24px; }
+  .upload-panel.active { right: 0; }
+  .upload-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .upload-panel-title { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 22px; letter-spacing: 0.08em; }
+  .upload-close { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: transparent; color: var(--text-dim); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+  .upload-close:hover { color: var(--text); border-color: rgba(242,237,228,0.2); }
+  .upload-close.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+  .drop-zone { border: 2px dashed var(--input-border); border-radius: 12px; padding: 32px; text-align: center; cursor: pointer; transition: all 0.25s; margin-bottom: 20px; }
+  .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: rgba(232,93,38,0.04); }
+  .drop-zone-icon { font-size: 32px; margin-bottom: 8px; }
+  .drop-zone-text { font-size: 13px; color: var(--text-dim); }
+  .drop-zone-hint { font-size: 11px; color: rgba(184,175,166,0.5); margin-top: 4px; }
+  .drop-zone input[type="file"] { display: none; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; font-family: 'DM Mono', monospace; letter-spacing: 0.06em; text-transform: uppercase; }
+  .form-input { width: 100%; padding: 10px 14px; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 8px; color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 14px; outline: none; transition: border-color 0.2s; }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input.error { border-color: var(--error); }
+  .form-textarea { resize: vertical; min-height: 72px; }
+  .form-error { font-size: 11px; color: var(--error); margin-top: 4px; display: none; }
+  .form-error.visible { display: block; }
+  .tag-selector { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag-selector .tag-pill { padding: 6px 14px; border-radius: 100px; font-size: 12px; font-family: 'DM Mono', monospace; border: 1px solid var(--border); background: transparent; color: var(--text-dim); cursor: pointer; transition: all 0.2s; }
+  .tag-selector .tag-pill.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tag-selector .tag-pill:hover:not(.selected) { border-color: rgba(242,237,228,0.2); color: var(--text); }
+  .tag-add-btn { padding: 6px 14px; border-radius: 100px; font-size: 12px; border: 1px dashed var(--border); background: transparent; color: var(--text-dim); cursor: pointer; transition: all 0.2s; }
+  .tag-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .toggle-label { font-size: 13px; color: var(--text-dim); }
+  .toggle-switch { width: 44px; height: 24px; border-radius: 12px; background: var(--input-bg); border: 1px solid var(--input-border); cursor: pointer; position: relative; transition: all 0.2s; }
+  .toggle-switch.active { background: var(--accent); border-color: var(--accent); }
+  .toggle-switch::after { content: ''; width: 18px; height: 18px; border-radius: 50%; background: var(--text); position: absolute; top: 2px; left: 2px; transition: transform 0.2s; }
+  .toggle-switch.active::after { transform: translateX(20px); }
+  .upload-status { display: none; padding: 16px; border-radius: 8px; background: var(--input-bg); margin-bottom: 16px; text-align: center; }
+  .upload-status.active { display: block; }
+  .upload-status .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .upload-status .status-text { font-size: 13px; color: var(--text-dim); }
+  .upload-progress-bar { width: 100%; height: 4px; border-radius: 2px; background: var(--input-bg); margin-top: 8px; overflow: hidden; }
+  .upload-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; transition: width 0.3s; }
+  .upload-success { color: var(--success); font-size: 14px; font-weight: 600; }
+  .upload-actions { display: flex; gap: 12px; margin-top: 24px; }
+  .btn-publish { flex: 1; padding: 12px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.25s; }
+  .btn-publish:hover { background: var(--accent-glow); }
+  .btn-publish:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-cancel { padding: 12px 24px; background: transparent; color: var(--text-dim); border: 1px solid var(--border); border-radius: 8px; font-size: 14px; cursor: pointer; transition: all 0.2s; }
+  .btn-cancel:hover { color: var(--text); border-color: rgba(242,237,228,0.2); }
+  .retry-btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 20px; background: rgba(232,93,38,0.1); border: 1px solid var(--accent); border-radius: 100px; color: var(--accent); font-size: 13px; cursor: pointer; transition: all 0.25s; margin-top: 12px; }
+  .retry-btn:hover { background: var(--accent); color: #fff; }
+  .retry-btn .retry-emoji { font-size: 16px; }
+  .upload-preview { width: 100%; height: 200px; object-fit: cover; border-radius: 8px; margin-bottom: 16px; display: none; border: 1px solid var(--border); }
+  .upload-preview.visible { display: block; }
+  .batch-queue { display: none; margin-bottom: 16px; }
+  .batch-queue.active { display: block; }
+  .batch-item { display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
+  .batch-item:hover { border-color: rgba(242,237,228,0.15); }
+  .batch-item.active { border-color: var(--accent); }
+  .batch-item-thumb { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; }
+  .batch-item-info { flex: 1; min-width: 0; }
+  .batch-item-name { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .batch-item-status { font-size: 10px; color: var(--text-dim); font-family: 'DM Mono', monospace; }
 
   /* ===== NAVIGATION ===== */
   .nav {
@@ -554,6 +706,52 @@
     letter-spacing: 0.15em;
   }
 
+  /* ===== TAG MANAGER ===== */
+  .tag-panel { position: fixed; top: 0; right: -400px; width: 380px; max-width: calc(100vw - 32px); height: 100vh; z-index: 250; background: var(--bg-card); border-left: 1px solid var(--border); overflow-y: auto; transition: right 0.35s cubic-bezier(0.25,0.46,0.45,0.94); padding: 24px; }
+  .tag-panel.active { right: 0; }
+  .tag-list-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .tag-list-name { font-size: 14px; color: var(--text); }
+  .tag-list-count { font-size: 12px; color: var(--text-dim); font-family: 'DM Mono', monospace; margin-left: 8px; }
+  .tag-list-actions { display: flex; gap: 8px; }
+  .tag-list-actions button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: transparent; color: var(--text-dim); cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+  .tag-list-actions button:hover { color: var(--text); border-color: rgba(242,237,228,0.2); }
+  .tag-new-row { display: flex; gap: 8px; margin-top: 16px; }
+  .tag-new-row input { flex: 1; }
+  .tag-new-row button { padding: 10px 16px; background: var(--accent); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; }
+
+  /* ===== LOCKED PHOTO STATE ===== */
+  .photo-card.locked .photo-wrapper img { filter: blur(12px) contrast(1.05) saturate(0.9); pointer-events: none; }
+  .photo-card.locked .lock-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 2; }
+  .photo-card.locked .lock-icon { font-size: 48px; color: var(--accent); text-shadow: 0 0 20px rgba(232,93,38,0.4); }
+  .photo-card .encrypted-badge { position: absolute; top: 8px; left: 8px; font-size: 14px; z-index: 3; opacity: 0.7; }
+  .photo-card .card-actions { position: absolute; top: 8px; right: 8px; display: none; gap: 6px; z-index: 5; }
+  body.is-admin .photo-card:hover .card-actions { display: flex; }
+  .card-action-btn { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: rgba(26,23,20,0.85); backdrop-filter: blur(8px); color: var(--text-dim); cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+  .card-action-btn:hover { color: var(--text); background: rgba(36,32,25,0.95); }
+  .card-action-btn.delete:hover { color: var(--error); border-color: var(--error); }
+
+  /* Unlock modal */
+  .unlock-modal-overlay { position: fixed; inset: 0; z-index: 310; background: var(--overlay); backdrop-filter: blur(12px); display: none; align-items: center; justify-content: center; }
+  .unlock-modal-overlay.active { display: flex; }
+  .unlock-modal { width: 340px; max-width: calc(100vw - 32px); background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 32px; text-align: center; }
+  .unlock-modal .lock-big { font-size: 40px; margin-bottom: 12px; }
+  .unlock-modal p { font-size: 13px; color: var(--text-dim); margin-bottom: 20px; }
+  .unlock-modal input { width: 100%; padding: 12px 16px; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; margin-bottom: 12px; }
+  .unlock-modal input:focus { border-color: var(--accent); }
+  .unlock-modal .unlock-btn { width: 100%; padding: 12px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .unlock-error { font-size: 12px; color: var(--error); margin-bottom: 8px; display: none; }
+  .unlock-error.visible { display: block; }
+
+  /* Photo description */
+  .caption .desc { font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.5; max-height: 60px; overflow: hidden; }
+  .caption .desc p { margin: 0; }
+  .caption .desc strong { color: var(--text); }
+  .caption .desc a { color: var(--accent); }
+
+  /* Timeline loading state */
+  .timeline-loading { text-align: center; padding: 80px 20px; color: var(--text-dim); font-size: 13px; }
+  .timeline-loading .spinner { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
+
   /* ===== SCROLL ANIMATIONS ===== */
   .fade-up {
     opacity: 0;
@@ -627,6 +825,14 @@
 
     .tag-filter { padding: 0 20px 16px; }
     .tag-filter-inner { gap: 8px; }
+
+    /* V2.0 mobile overrides */
+    .upload-panel { width: 100%; right: -100%; border-radius: 16px 16px 0 0; top: auto; bottom: 0; height: 85vh; }
+    .upload-panel.active { right: 0; }
+    .tag-panel { width: 100%; max-width: 100%; right: -100%; }
+    .tag-panel.active { right: 0; }
+    .admin-toolbar { bottom: 16px; right: 16px; }
+    .identity-modal { width: calc(100vw - 32px); padding: 32px 24px 24px; }
   }
 
   @media (max-width: 480px) {
@@ -640,6 +846,25 @@
 </style>
 </head>
 <body>
+<!-- Identity Selection Modal -->
+<div class="identity-overlay" id="identity-overlay">
+  <div class="identity-modal">
+    <div class="brand">ZC'S COLLECTION</div>
+    <div class="subtitle">选择你的身份</div>
+    <div id="identity-buttons">
+      <button class="identity-btn visitor" id="btn-visitor">VISITOR — 浏览照片</button>
+      <button class="identity-btn admin" id="btn-admin">ADMIN — 管理照片</button>
+    </div>
+    <div class="identity-form" id="identity-form">
+      <input type="password" class="identity-input" id="admin-password" placeholder="输入管理员密码" autocomplete="current-password">
+      <div class="identity-error" id="identity-error">密码错误</div>
+      <button class="identity-verify-btn" id="btn-verify">验证</button>
+    </div>
+    <div class="identity-lock-msg" id="identity-lock-msg">密码错误次数过多，请 <span id="lock-countdown">30</span> 秒后重试</div>
+    <div class="identity-privacy">本站使用 Firebase 存储服务，不收集访客个人信息</div>
+  </div>
+</div>
+
 <div class="page-loader" id="page-loader">
   <div class="loader-dot"></div>
   <div class="loader-title">ZC'S COLLECTION</div>
@@ -714,16 +939,15 @@
   let activeTag = null; // null = show all
 
   function getAllTags(data) {
-    const tagMap = {};
-    data.forEach(p => {
-      (p.tags || []).forEach(t => {
+    var tagMap = {};
+    data.forEach(function(p) {
+      (p.tags || []).forEach(function(t) {
         tagMap[t] = (tagMap[t] || 0) + 1;
       });
     });
-    // Sort by count descending
     return Object.entries(tagMap)
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, count]) => ({ name, count }));
+      .sort(function(a, b) { return b[1] - a[1]; })
+      .map(function(entry) { return { name: entry[0], count: entry[1] }; });
   }
 
   const allTags = getAllTags(photoData);
@@ -751,8 +975,9 @@
   }
 
   function getFilteredData() {
-    if (!activeTag) return photoData;
-    return photoData.filter(p => (p.tags || []).includes(activeTag));
+    var data = window.currentPhotos || photoData;
+    if (!activeTag) return data;
+    return data.filter(function(p) { return (p.tags || []).indexOf(activeTag) !== -1; });
   }
 
   function applyFilter(tagOverride) {
@@ -861,44 +1086,131 @@
     `;
   }
 
+  // ===== RENDER ALL (data refresh) =====
+  function renderAll() {
+    var data = window.currentPhotos || photoData;
+    var groups = getGroups(data);
+    renderNav(groups);
+    renderHero(data.length, groups.length);
+    renderTagFilter();
+    renderTimeline(groups);
+    initLazyLoading();
+    document.querySelectorAll('.fade-up').forEach(function(el) {
+      el.classList.remove('visible');
+      fadeObserver.observe(el);
+    });
+  }
+  window.renderAll = renderAll;
+
+  function editPhotoFromCard(docId) {
+    var photo = DataAccess.photos.find(function(p) { return p.docId === docId; });
+    if (!photo) return;
+    openUploadPanel();
+    document.getElementById('upload-name').value = photo.name || '';
+    document.getElementById('upload-date').value = photo.date || '';
+    document.getElementById('upload-desc').value = photo.description || '';
+    // Mark selected tags
+    setTimeout(function() {
+      document.querySelectorAll('#upload-tags .tag-pill').forEach(function(pill) {
+        if ((photo.tags || []).indexOf(pill.dataset.tagId) !== -1) pill.classList.add('selected');
+      });
+    }, 100);
+    // Store docId for update instead of create
+    uploadState.editingDocId = docId;
+    uploadState.editingVersion = photo.version;
+    document.querySelector('.upload-panel-title').textContent = '编辑照片';
+    document.getElementById('btn-publish').textContent = '保存';
+  }
+
   function renderTimeline(groups) {
-    const timeline = document.getElementById('timeline');
-    let globalIdx = 0;
-    const groupsHTML = groups.map(group => {
-      const cardsHTML = group.photos.map(photo => {
+    var timeline = document.getElementById('timeline');
+    var isAdmin = AuthManager && AuthManager.isAdmin();
+    var isVisitor = AuthManager && AuthManager.isVisitor();
+    var unlockedIds = (typeof UnlockManager !== 'undefined') ? UnlockManager.getUnlockedSet() : [];
+    var globalIdx = 0;
+    var groupsHTML = groups.map(function(group) {
+      var cardsHTML = group.photos.map(function(photo) {
         globalIdx++;
-        const idxStr = String(globalIdx).padStart(2, '0');
-        const dayParts = photo.date.split('-');
-        const displayDate = dayParts[1] + '.' + dayParts[2];
-        const perfs = Array(8).fill('<span class="perf"></span>').join('');
-        return `
-          <div class="photo-card" data-index="${globalIdx - 1}">
-            <div class="photo-wrapper">
-              <img class="lazy" data-src="${photo.thumb}" alt="${photo.title}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect fill='%23242019' width='4' height='3'/%3E%3C/svg%3E">
-            </div>
-            <div class="film-strip">${perfs}</div>
-            <div class="caption">
-              <div>
-                <div class="title">${photo.title}</div>
-                <div class="date">${displayDate}</div>
-              </div>
-              <div class="idx">${idxStr}</div>
-            </div>
-          </div>`;
+        var idxStr = String(globalIdx).padStart(2, '0');
+        var dayParts = photo.date.split('-');
+        var displayDate = dayParts[1] + '.' + dayParts[2];
+        var perfs = Array(8).fill('<span class="perf"></span>').join('');
+        var isEncrypted = photo.encrypted;
+        var isLocked = isEncrypted && isVisitor && unlockedIds.indexOf(photo.docId) === -1;
+        var lockedClass = isLocked ? ' locked' : '';
+        var docId = photo.docId || '';
+
+        // Determine image source
+        var imgSrc = photo.thumb || photo.src;
+        var lazySrc = isLocked ? (photo.thumbnailPath || imgSrc) : imgSrc;
+
+        // Lock overlay HTML
+        var lockOverlay = isLocked ? '<div class="lock-overlay"><div class="lock-icon">🔒</div></div>' : '';
+
+        // Admin badge for encrypted photos
+        var encBadge = (isEncrypted && isAdmin) ? '<div class="encrypted-badge">🔒</div>' : '';
+
+        // Admin action buttons
+        var adminActions = '';
+        if (isAdmin && docId) {
+          adminActions = '<div class="card-actions">' +
+            '<button class="card-action-btn" onclick="event.stopPropagation();editPhotoFromCard(\'' + docId + '\')" title="编辑">✎</button>' +
+            '<button class="card-action-btn delete" onclick="event.stopPropagation();deletePhoto(\'' + docId + '\',\'' + (photo.title || '').replace(/'/g, "\\'") + '\')" title="删除">🗑</button>' +
+            '</div>';
+        }
+
+        // Description (Markdown rendered)
+        var descHTML = '';
+        if (photo.description) {
+          try {
+            if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+              descHTML = '<div class="desc">' + DOMPurify.sanitize(marked.parse(photo.description)) + '</div>';
+            } else {
+              descHTML = '<div class="desc">' + photo.description + '</div>';
+            }
+          } catch(e) { descHTML = ''; }
+        }
+
+        return '<div class="photo-card' + lockedClass + '" data-index="' + (globalIdx - 1) + '" data-doc-id="' + docId + '">' +
+          encBadge + adminActions +
+          '<div class="photo-wrapper">' + lockOverlay +
+          '<img class="lazy" data-src="' + lazySrc + '" alt="' + (photo.title || '') + '" src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 4 3\'%3E%3Crect fill=\'%23242019\' width=\'4\' height=\'3\'/%3E%3C/svg%3E">' +
+          '</div>' +
+          '<div class="film-strip">' + perfs + '</div>' +
+          '<div class="caption"><div>' +
+          '<div class="title">' + (isLocked ? '加密照片' : (photo.title || '')) + '</div>' +
+          '<div class="date">' + displayDate + '</div>' +
+          descHTML +
+          '</div><div class="idx">' + idxStr + '</div></div></div>';
       }).join('');
 
-      return `
-        <div class="time-group fade-up" id="${group.id}">
-          <div class="time-label">
-            <div class="year">${group.year}</div>
-            <div class="month">— ${group.month}</div>
-          </div>
-          <div class="time-dot"></div>
-          <div class="photos-grid">${cardsHTML}</div>
-        </div>`;
+      return '<div class="time-group fade-up" id="' + group.id + '">' +
+        '<div class="time-label"><div class="year">' + group.year + '</div><div class="month">— ' + group.month + '</div></div>' +
+        '<div class="time-dot"></div>' +
+        '<div class="photos-grid">' + cardsHTML + '</div></div>';
     }).join('');
 
     timeline.innerHTML = groupsHTML;
+
+    // Wire up click handlers
+    document.querySelectorAll('.photo-card').forEach(function(card) {
+      card.addEventListener('click', function() {
+        var docId = card.dataset.docId;
+        var photo = DataAccess && DataAccess.photos ? DataAccess.photos.find(function(p) { return p.docId === docId; }) : null;
+
+        // If locked, show unlock prompt
+        if (card.classList.contains('locked')) {
+          if (typeof UnlockManager !== 'undefined' && docId) {
+            UnlockManager.showPrompt(docId);
+          }
+          return;
+        }
+
+        var idx = parseInt(card.dataset.index, 10);
+        openLightbox(idx);
+        if (typeof plausible === 'function') plausible('photo_click', {props: {index: idx + 1}});
+      });
+    });
   }
 
   function renderFooter() {
@@ -1032,6 +1344,816 @@
   document.querySelectorAll('.fade-up').forEach(el => {
     fadeObserver.observe(el);
   });
+</script>
+
+<!-- Tag Management Panel -->
+<div class="upload-overlay" id="tag-overlay" style="z-index:249"></div>
+<div class="tag-panel" id="tag-panel">
+  <div class="upload-panel-header">
+    <div class="upload-panel-title">标签管理</div>
+    <button class="upload-close" id="tag-close">&times;</button>
+  </div>
+  <div id="tag-list"></div>
+  <div class="tag-new-row">
+    <input class="form-input" id="new-tag-input" placeholder="新标签名（2-6 字符）" maxlength="6">
+    <button id="btn-add-tag-submit">添加</button>
+  </div>
+</div>
+
+<!-- Unlock Password Modal -->
+<div class="unlock-modal-overlay" id="unlock-overlay">
+  <div class="unlock-modal">
+    <div class="lock-big">🔒</div>
+    <p>这是一张加密照片，请输入密码查看</p>
+    <input type="password" id="unlock-password" placeholder="输入密码">
+    <div class="unlock-error" id="unlock-error">密码错误，请重试</div>
+    <button class="unlock-btn" id="btn-unlock">解锁</button>
+    <button style="background:transparent;border:1px solid var(--border);margin-top:8px;color:var(--text-dim);cursor:pointer;padding:10px;border-radius:8px;width:100%;font-size:13px" id="btn-unlock-cancel">取消</button>
+  </div>
+</div>
+
+<!-- Settings Panel -->
+<div class="upload-overlay" id="settings-overlay" style="z-index:249"></div>
+<div class="tag-panel" id="settings-panel" style="width:360px">
+  <div class="upload-panel-header">
+    <div class="upload-panel-title">设置</div>
+    <button class="upload-close" id="settings-close">&times;</button>
+  </div>
+  <div class="form-group"><label class="form-label">当前密码</label><input class="form-input" id="settings-old-pw" type="password" placeholder="输入当前密码"></div>
+  <div class="form-group"><label class="form-label">新密码</label><input class="form-input" id="settings-new-pw" type="password" placeholder="最少 4 位" minlength="4"></div>
+  <div class="form-group"><label class="form-label">确认新密码</label><input class="form-input" id="settings-confirm-pw" type="password" placeholder="再次输入新密码"></div>
+  <button class="btn-publish" id="btn-save-password" style="margin-top:16px;width:100%">保存密码</button>
+</div>
+
+<!-- Admin Toolbar -->
+<div class="admin-toolbar" id="admin-toolbar">
+  <div class="toolbar-menu" id="toolbar-menu">
+    <div class="toolbar-menu-item" id="menu-tags"><span class="toolbar-menu-icon">🏷</span>标签管理</div>
+    <div class="toolbar-menu-item" id="menu-settings"><span class="toolbar-menu-icon">⚙</span>设置</div>
+    <div class="toolbar-menu-item" id="menu-logout"><span class="toolbar-menu-icon">🚪</span>退出登录</div>
+  </div>
+  <button class="toolbar-btn" id="btn-menu" title="菜单">☰</button>
+  <button class="toolbar-btn primary" id="btn-upload" title="上传照片">+</button>
+</div>
+<div class="upload-overlay" id="upload-overlay"></div>
+<div class="upload-panel" id="upload-panel">
+  <div class="upload-panel-header">
+    <div class="upload-panel-title">上传照片</div>
+    <button class="upload-close" id="upload-close">&times;</button>
+  </div>
+  <div class="drop-zone" id="drop-zone">
+    <div class="drop-zone-icon">📷</div>
+    <div class="drop-zone-text">拖拽或点击选择图片</div>
+    <div class="drop-zone-hint">支持 JPG、PNG、WebP，最大 20MB，可多选</div>
+    <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" multiple>
+  </div>
+  <img class="upload-preview" id="upload-preview" alt="预览">
+  <div class="batch-queue" id="batch-queue"></div>
+  <div class="upload-status" id="upload-status">
+    <div class="spinner"></div>
+    <div class="status-text" id="status-text">正在压缩图片...</div>
+    <div class="upload-progress-bar"><div class="upload-progress-fill" id="progress-fill"></div></div>
+  </div>
+  <div class="form-group"><label class="form-label">照片名称 *</label><input class="form-input" id="upload-name" placeholder="照片名称" maxlength="20"><div class="form-error" id="error-name">请填写照片名称</div></div>
+  <div class="form-group"><label class="form-label">日期</label><input class="form-input" id="upload-date" type="date"></div>
+  <div class="form-group"><label class="form-label">描述 (支持 Markdown)</label><textarea class="form-input form-textarea" id="upload-desc" placeholder="照片描述（可选，支持 Markdown）" maxlength="500"></textarea></div>
+  <div class="form-group"><label class="form-label">标签</label><div class="tag-selector" id="upload-tags"></div></div>
+  <div class="toggle-row"><span class="toggle-label">加密保护</span><div class="toggle-switch" id="encrypt-toggle"></div></div>
+  <div id="encrypt-fields" style="display:none">
+    <div class="form-group"><label class="form-label">加密密码</label><input class="form-input" id="encrypt-password" type="password" placeholder="最少 4 位" minlength="4"></div>
+    <div class="form-group"><label class="form-label">确认密码</label><input class="form-input" id="encrypt-confirm" type="password" placeholder="再次输入密码"><div class="form-error" id="error-password">两次输入的密码不一致</div></div>
+  </div>
+  <div class="upload-actions">
+    <button class="btn-cancel" id="btn-upload-cancel">取消</button>
+    <button class="btn-publish" id="btn-publish">发布</button>
+  </div>
+</div>
+
+<script>
+// ===== IMAGE COMPRESSION (Canvas API) =====
+var ImageCompressor = {
+  MAX_DIMENSION: 2048,
+  JPEG_QUALITY: 0.8,
+  compress: function(file) {
+    var self = this;
+    return new Promise(function(resolve, reject) {
+      var img = new Image();
+      img.onload = function() {
+        try {
+          var canvas = document.createElement('canvas');
+          var w = img.width, h = img.height;
+          if (w > self.MAX_DIMENSION || h > self.MAX_DIMENSION) {
+            var ratio = Math.min(self.MAX_DIMENSION / w, self.MAX_DIMENSION / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob(function(blob) {
+            if (blob) {
+              console.log('Compressed: ' + (file.size/1024).toFixed(0) + 'KB -> ' + (blob.size/1024).toFixed(0) + 'KB');
+              resolve(blob);
+            } else { reject(new Error('Compression failed')); }
+          }, 'image/jpeg', self.JPEG_QUALITY);
+        } catch (err) { reject(err); }
+      };
+      img.onerror = function() { reject(new Error('Failed to load image')); };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+};
+
+// Generate blurry thumbnail for encrypted photo lock state
+function generateThumbnail(file) {
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      var size = 200;
+      var ratio = Math.min(size / img.width, size / img.height);
+      canvas.width = img.width * ratio;
+      canvas.height = img.height * ratio;
+      var ctx = canvas.getContext('2d');
+      ctx.filter = 'blur(8px)';
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(function(blob) { resolve(blob); }, 'image/jpeg', 0.5);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// ===== PHOTO ENCRYPTION (AES-GCM + PBKDF2) =====
+var PhotoCrypto = {
+  deriveKey: function(password, salt) {
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey'])
+      .then(function(keyMaterial) {
+        return crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+          keyMaterial,
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['encrypt', 'decrypt']
+        );
+      });
+  },
+  encrypt: function(blob, password) {
+    var salt = crypto.getRandomValues(new Uint8Array(16));
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    return this.deriveKey(password, salt).then(function(key) {
+      return blob.arrayBuffer().then(function(data) {
+        return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, data).then(function(encrypted) {
+          return {
+            data: new Blob([encrypted], { type: 'application/octet-stream' }),
+            salt: btoa(String.fromCharCode.apply(null, salt)),
+            iv: btoa(String.fromCharCode.apply(null, iv))
+          };
+        });
+      });
+    });
+  },
+  decrypt: function(encryptedBlob, password, saltB64, ivB64) {
+    var salt = new Uint8Array(atob(saltB64).split('').map(function(c) { return c.charCodeAt(0); }));
+    var iv = new Uint8Array(atob(ivB64).split('').map(function(c) { return c.charCodeAt(0); }));
+    return this.deriveKey(password, salt).then(function(key) {
+      return encryptedBlob.arrayBuffer().then(function(data) {
+        return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, data).then(function(decrypted) {
+          return new Blob([decrypted], { type: 'image/jpeg' });
+        });
+      });
+    });
+  }
+};
+
+// ===== DATA ACCESS (Firestore) =====
+var DataAccess = {
+  photos: [],
+  tags: [],
+  unsubscribePhotos: null,
+  unsubscribeTags: null,
+
+  init: function() {
+    var m = window.firebaseModules;
+    var self = this;
+    if (!m) { console.warn('Firebase not ready, using static data'); return Promise.resolve(); }
+
+    return new Promise(function(resolve) {
+      // Listen to tags
+      self.unsubscribeTags = m.onSnapshot(
+        m.query(m.collection(window.firebaseDB, 'tags'), m.orderBy('createdAt')),
+        function(snapshot) {
+          self.tags = snapshot.docs.map(function(doc) { return Object.assign({ tagId: doc.id }, doc.data()); });
+          window.dispatchEvent(new CustomEvent('tags-updated', { detail: self.tags }));
+          resolve();
+        },
+        function(err) { console.warn('Tags listener error:', err); resolve(); }
+      );
+
+      // Listen to photos
+      self.unsubscribePhotos = m.onSnapshot(
+        m.query(m.collection(window.firebaseDB, 'photos'), m.orderBy('date', 'desc')),
+        function(snapshot) {
+          self.photos = snapshot.docs.map(function(doc) {
+            return Object.assign({ docId: doc.id }, doc.data(), { version: doc.data().version || 0 });
+          });
+          window.dispatchEvent(new CustomEvent('photos-updated', { detail: self.photos }));
+        },
+        function(err) { console.warn('Photos listener error:', err); }
+      );
+    });
+  },
+
+  addPhoto: function(photoData, imageBlob, thumbnailBlob, encryptedData) {
+    var m = window.firebaseModules;
+    var db = window.firebaseDB;
+    var store = window.firebaseStorage;
+    var photoRef = m.doc(m.collection(db, 'photos'));
+    var photoId = photoRef.id;
+    var ext = photoData.encrypted ? 'encrypted.bin' : 'original.jpg';
+    var imgRef = m.ref(store, 'photos/' + photoId + '/' + ext);
+    var metadata = { customMetadata: { encrypted: String(photoData.encrypted) } };
+
+    return m.uploadBytesResumable(imgRef, imageBlob, metadata).then(function() {
+      if (thumbnailBlob) {
+        var thumbRef = m.ref(store, 'photos/' + photoId + '/thumbnail_blur.jpg');
+        return m.uploadBytesResumable(thumbRef, thumbnailBlob);
+      }
+    }).then(function() {
+      return m.setDoc(photoRef, {
+        name: photoData.name,
+        date: photoData.date,
+        description: photoData.description || '',
+        tags: photoData.tags || [],
+        encrypted: photoData.encrypted,
+        storagePath: 'photos/' + photoId + '/' + ext,
+        thumbnailPath: thumbnailBlob ? 'photos/' + photoId + '/thumbnail_blur.jpg' : null,
+        salt: (encryptedData && encryptedData.salt) || null,
+        iv: (encryptedData && encryptedData.iv) || null,
+        version: 1,
+        createdAt: m.serverTimestamp(),
+        updatedAt: m.serverTimestamp()
+      });
+    }).then(function() { return photoId; });
+  },
+
+  updatePhoto: function(docId, updates) {
+    var m = window.firebaseModules;
+    var db = window.firebaseDB;
+    var photoRef = m.doc(db, 'photos', docId);
+    return m.runTransaction(db, function(transaction) {
+      return transaction.get(photoRef).then(function(snap) {
+        if (!snap.exists()) throw new Error('Photo not found');
+        var current = snap.data();
+        if (updates._expectedVersion !== undefined && current.version !== updates._expectedVersion) {
+          throw new Error('VERSION_CONFLICT');
+        }
+        delete updates._expectedVersion;
+        updates.version = (current.version || 0) + 1;
+        updates.updatedAt = m.serverTimestamp();
+        transaction.update(photoRef, updates);
+      });
+    });
+  },
+
+  deletePhoto: function(docId) {
+    var m = window.firebaseModules;
+    var db = window.firebaseDB;
+    var store = window.firebaseStorage;
+    var promises = [
+      m.deleteObject(m.ref(store, 'photos/' + docId + '/original.jpg')).catch(function(){}),
+      m.deleteObject(m.ref(store, 'photos/' + docId + '/encrypted.bin')).catch(function(){}),
+      m.deleteObject(m.ref(store, 'photos/' + docId + '/thumbnail_blur.jpg')).catch(function(){})
+    ];
+    return Promise.all(promises).then(function() {
+      return m.deleteDoc(m.doc(db, 'photos', docId));
+    });
+  },
+
+  addTag: function(tagName) {
+    var m = window.firebaseModules;
+    return m.addDoc(m.collection(window.firebaseDB, 'tags'), {
+      tagName: tagName,
+      createdAt: m.serverTimestamp()
+    });
+  },
+
+  updateTag: function(tagId, tagName) {
+    var m = window.firebaseModules;
+    return m.updateDoc(m.doc(window.firebaseDB, 'tags', tagId), { tagName: tagName });
+  },
+
+  deleteTag: function(tagId) {
+    var m = window.firebaseModules;
+    var self = this;
+    return m.deleteDoc(m.doc(window.firebaseDB, 'tags', tagId)).then(function() {
+      var affected = self.photos.filter(function(p) { return (p.tags || []).indexOf(tagId) !== -1; });
+      var updates = affected.map(function(photo) {
+        return self.updatePhoto(photo.docId, {
+          tags: photo.tags.filter(function(t) { return t !== tagId; }),
+          _expectedVersion: photo.version
+        });
+      });
+      return Promise.all(updates);
+    });
+  },
+
+  getPhotoCount: function(tagId) {
+    if (!tagId) return this.photos.length;
+    return this.photos.filter(function(p) { return (p.tags || []).indexOf(tagId) !== -1; }).length;
+  }
+};
+</script>
+
+<script>
+// ===== IDENTITY & AUTH =====
+const AuthManager = {
+  failedAttempts: 0, lockTimer: null, currentRole: null,
+  init() {
+    const savedRole = sessionStorage.getItem('role');
+    if (savedRole === 'admin' || savedRole === 'visitor') {
+      if (savedRole === 'admin' && window.firebaseModules) {
+        window.firebaseModules.onAuthStateChanged(window.firebaseAuth, (user) => {
+          if (user) { this.setRole('admin', false); }
+          else { sessionStorage.removeItem('role'); this.showModal(); }
+        });
+        return;
+      }
+      this.setRole(savedRole, false);
+    } else { this.showModal(); }
+  },
+  showModal() { document.getElementById('identity-overlay').classList.add('active'); },
+  hideModal() { document.getElementById('identity-overlay').classList.remove('active'); },
+  setRole(role, track) {
+    if (track === undefined) track = true;
+    this.currentRole = role;
+    sessionStorage.setItem('role', role);
+    this.hideModal();
+    window.dispatchEvent(new CustomEvent('role-changed', { detail: { role: role } }));
+    if (track && typeof plausible === 'function') plausible('identity_select', { props: { role: role } });
+    if (role === 'admin') document.body.classList.add('is-admin');
+    else document.body.classList.remove('is-admin');
+  },
+  async verifyAdmin(password) {
+    try {
+      if (!window.firebaseModules) { alert('Firebase 未就绪'); return; }
+      var adminEmail = sessionStorage.getItem('adminEmail') || 'admin@zc-collection.com';
+      await window.firebaseModules.signInWithEmailAndPassword(window.firebaseAuth, adminEmail, password);
+      this.failedAttempts = 0;
+      this.setRole('admin');
+    } catch (err) {
+      this.failedAttempts++;
+      if (typeof plausible === 'function') plausible('auth_failure', { props: { attempt_count: this.failedAttempts } });
+      if (this.failedAttempts >= 3) { this.lockUI(); }
+      else { document.getElementById('identity-error').classList.add('visible'); document.getElementById('admin-password').classList.add('error'); }
+    }
+  },
+  lockUI() {
+    var btn = document.getElementById('btn-verify');
+    var msg = document.getElementById('identity-lock-msg');
+    var cd = document.getElementById('lock-countdown');
+    btn.disabled = true; msg.classList.add('visible');
+    var s = 30; cd.textContent = s;
+    this.lockTimer = setInterval(function() { s--; cd.textContent = s; if (s <= 0) { clearInterval(AuthManager.lockTimer); btn.disabled = false; msg.classList.remove('visible'); AuthManager.failedAttempts = 0; } }, 1000);
+  },
+  logout() {
+    if (window.firebaseModules && window.firebaseAuth) window.firebaseModules.signOut(window.firebaseAuth);
+    sessionStorage.removeItem('role'); sessionStorage.removeItem('unlockedPhotos');
+    this.currentRole = null; this.showModal();
+    window.dispatchEvent(new CustomEvent('role-changed', { detail: { role: null } }));
+    document.body.classList.remove('is-admin');
+  },
+  isAdmin() { return this.currentRole === 'admin'; },
+  isVisitor() { return this.currentRole === 'visitor'; }
+};
+
+document.getElementById('btn-visitor').addEventListener('click', function() { AuthManager.setRole('visitor'); });
+document.getElementById('btn-admin').addEventListener('click', function() {
+  document.getElementById('identity-buttons').style.display = 'none';
+  document.getElementById('identity-form').classList.add('active');
+  document.getElementById('admin-password').focus();
+});
+document.getElementById('btn-verify').addEventListener('click', function() {
+  var pw = document.getElementById('admin-password').value;
+  if (pw) AuthManager.verifyAdmin(pw);
+});
+document.getElementById('admin-password').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('btn-verify').click();
+});
+document.getElementById('identity-overlay').addEventListener('click', function(e) {
+  if (e.target === e.currentTarget) AuthManager.setRole('visitor');
+});
+
+// ===== ADMIN TOOLBAR =====
+window.addEventListener('role-changed', function(e) {
+  var toolbar = document.getElementById('admin-toolbar');
+  if (e.detail.role === 'admin') toolbar.classList.add('visible');
+  else toolbar.classList.remove('visible');
+});
+document.getElementById('btn-menu').addEventListener('click', function() {
+  document.getElementById('toolbar-menu').classList.toggle('open');
+});
+document.getElementById('btn-upload').addEventListener('click', function() { openUploadPanel(); });
+document.getElementById('menu-logout').addEventListener('click', function() { AuthManager.logout(); });
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.admin-toolbar')) document.getElementById('toolbar-menu').classList.remove('open');
+});
+
+// ===== UPLOAD PANEL =====
+var uploadState = { isOpen: false, isUploading: false, selectedFiles: [] };
+
+function openUploadPanel() {
+  uploadState.isOpen = true;
+  document.getElementById('upload-panel').classList.add('active');
+  document.getElementById('upload-overlay').classList.add('active');
+  document.getElementById('upload-date').value = new Date().toISOString().split('T')[0];
+  renderUploadTags();
+}
+
+function closeUploadPanel() {
+  if (uploadState.isUploading) { if (!confirm('上传正在进行中，放弃将中断上传')) return; }
+  uploadState.isOpen = false;
+  document.getElementById('upload-panel').classList.remove('active');
+  document.getElementById('upload-overlay').classList.remove('active');
+  resetUploadForm();
+}
+
+function resetUploadForm() {
+  document.getElementById('upload-name').value = '';
+  document.getElementById('upload-desc').value = '';
+  document.getElementById('upload-preview').classList.remove('visible');
+  document.getElementById('batch-queue').classList.remove('active');
+  document.getElementById('upload-status').classList.remove('active');
+  document.getElementById('encrypt-toggle').classList.remove('active');
+  document.getElementById('encrypt-fields').style.display = 'none';
+  document.getElementById('btn-publish').disabled = false;
+  document.getElementById('upload-close').classList.remove('disabled');
+  uploadState.selectedFiles = [];
+  document.querySelectorAll('.form-error').forEach(function(el) { el.classList.remove('visible'); });
+  document.querySelectorAll('.form-input.error').forEach(function(el) { el.classList.remove('error'); });
+  document.getElementById('file-input').value = '';
+}
+
+function renderUploadTags() {
+  var container = document.getElementById('upload-tags');
+  var tags = (typeof DataAccess !== 'undefined') ? DataAccess.tags : [];
+  var pills = tags.map(function(t) {
+    return '<button class="tag-pill" data-tag-id="' + t.tagId + '">' + t.tagName + '</button>';
+  }).join('');
+  container.innerHTML = pills + '<button class="tag-add-btn" id="btn-add-tag-inline">+ 新建</button>';
+  container.querySelectorAll('.tag-pill').forEach(function(pill) {
+    pill.addEventListener('click', function() { pill.classList.toggle('selected'); });
+  });
+  var addBtn = document.getElementById('btn-add-tag-inline');
+  if (addBtn) addBtn.addEventListener('click', function() {
+    var name = prompt('新标签名（2-6 字符）');
+    if (name && name.length >= 2 && name.length <= 6 && typeof DataAccess !== 'undefined') {
+      DataAccess.addTag(name).then(function() { renderUploadTags(); });
+    }
+  });
+}
+
+document.getElementById('upload-close').addEventListener('click', closeUploadPanel);
+document.getElementById('upload-overlay').addEventListener('click', closeUploadPanel);
+document.getElementById('btn-upload-cancel').addEventListener('click', closeUploadPanel);
+document.getElementById('encrypt-toggle').addEventListener('click', function() {
+  this.classList.toggle('active');
+  document.getElementById('encrypt-fields').style.display = this.classList.contains('active') ? 'block' : 'none';
+});
+
+// Drop zone
+var dropZone = document.getElementById('drop-zone');
+var fileInput = document.getElementById('file-input');
+dropZone.addEventListener('click', function() { fileInput.click(); });
+dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('dragover'); });
+dropZone.addEventListener('drop', function(e) { e.preventDefault(); dropZone.classList.remove('dragover'); handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', function(e) { handleFiles(e.target.files); });
+
+function handleFiles(files) {
+  var valid = [];
+  for (var i = 0; i < files.length; i++) {
+    var f = files[i];
+    if (['image/jpeg','image/png','image/webp'].indexOf(f.type) === -1) { alert('仅支持 JPG、PNG、WebP 格式'); continue; }
+    if (f.size > 20 * 1024 * 1024) { alert('文件大小不能超过 20MB'); continue; }
+    valid.push(f);
+  }
+  if (valid.length === 0) return;
+  uploadState.selectedFiles = valid;
+  if (valid.length === 1) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var preview = document.getElementById('upload-preview');
+      preview.src = e.target.result;
+      preview.classList.add('visible');
+    };
+    reader.readAsDataURL(valid[0]);
+    document.getElementById('batch-queue').classList.remove('active');
+  } else {
+    document.getElementById('upload-preview').classList.remove('visible');
+    var queue = document.getElementById('batch-queue');
+    queue.innerHTML = valid.map(function(f, i) {
+      return '<div class="batch-item' + (i === 0 ? ' active' : '') + '" data-index="' + i + '">' +
+        '<img class="batch-item-thumb" src="' + URL.createObjectURL(f) + '" alt="">' +
+        '<div class="batch-item-info"><div class="batch-item-name">' + f.name + '</div><div class="batch-item-status">待配置</div></div></div>';
+    }).join('');
+    queue.classList.add('active');
+  }
+}
+
+// ===== UPLOAD FLOW =====
+function doUpload() {
+  var name = document.getElementById('upload-name').value.trim();
+  var date = document.getElementById('upload-date').value;
+  var desc = document.getElementById('upload-desc').value.trim();
+  var encrypted = document.getElementById('encrypt-toggle').classList.contains('active');
+  var password = encrypted ? document.getElementById('encrypt-password').value : null;
+  var selectedTags = [];
+  document.querySelectorAll('#upload-tags .tag-pill.selected').forEach(function(el) {
+    selectedTags.push(el.dataset.tagId);
+  });
+
+  uploadState.isUploading = true;
+  document.getElementById('btn-publish').disabled = true;
+  document.getElementById('upload-close').classList.add('disabled');
+  var statusEl = document.getElementById('upload-status');
+  var statusText = document.getElementById('status-text');
+  var progressFill = document.getElementById('progress-fill');
+  statusEl.classList.add('active');
+
+  var files = uploadState.selectedFiles;
+  var idx = 0;
+
+  function uploadNext() {
+    if (idx >= files.length) {
+      statusText.innerHTML = '<span class="upload-success">\u2713 发布成功！</span>';
+      progressFill.style.width = '100%';
+      if (typeof plausible === 'function') {
+        plausible('photo_upload', { props: { encrypted: encrypted, tag_count: selectedTags.length, batch_size: files.length } });
+      }
+      setTimeout(function() { closeUploadPanel(); }, 1500);
+      return;
+    }
+
+    var file = files[idx];
+    var batchLabel = files.length > 1 ? ' (' + (idx+1) + '/' + files.length + ')' : '';
+
+    statusText.textContent = '正在压缩图片...' + batchLabel;
+    progressFill.style.width = '10%';
+
+    ImageCompressor.compress(file).then(function(compressed) {
+      var uploadBlob = compressed;
+      var encData = null;
+      var thumbBlob = null;
+
+      var p = Promise.resolve();
+      if (encrypted) {
+        statusText.textContent = '正在加密...' + batchLabel;
+        progressFill.style.width = '30%';
+        p = PhotoCrypto.encrypt(compressed, password).then(function(result) {
+          encData = result;
+          uploadBlob = result.data;
+          return generateThumbnail(file);
+        }).then(function(tb) {
+          thumbBlob = tb;
+        });
+      }
+
+      return p.then(function() {
+        statusText.textContent = '正在上传...' + batchLabel;
+        progressFill.style.width = '50%';
+
+        var photoInfo = {
+          name: files.length > 1 ? name + ' (' + (idx+1) + ')' : name,
+          date: date,
+          description: desc,
+          tags: selectedTags,
+          encrypted: encrypted
+        };
+
+        return DataAccess.addPhoto(photoInfo, uploadBlob, thumbBlob, encData);
+      }).then(function() {
+        progressFill.style.width = Math.round(((idx + 1) / files.length) * 90) + '%';
+        idx++;
+        uploadNext();
+      });
+    });
+  }
+
+  uploadNext().catch(function(err) {
+    console.error('Upload failed:', err);
+    statusText.innerHTML = '<div style="color:var(--error)">上传失败</div>' +
+      '<button class="retry-btn" onclick="document.getElementById(\'btn-publish\').click()">' +
+      '<span class="retry-emoji">\uD83E\uDD7A</span> 哎呀失败了，再试一次吧～</button>';
+    uploadState.isUploading = false;
+    document.getElementById('btn-publish').disabled = false;
+    document.getElementById('upload-close').classList.remove('disabled');
+  });
+}
+
+// Publish button handler
+document.getElementById('btn-publish').addEventListener('click', function() {
+  document.querySelectorAll('.form-error').forEach(function(el) { el.classList.remove('visible'); });
+  document.querySelectorAll('.form-input.error').forEach(function(el) { el.classList.remove('error'); });
+  var hasError = false;
+  var name = document.getElementById('upload-name').value.trim();
+  if (!name) { document.getElementById('error-name').classList.add('visible'); document.getElementById('upload-name').classList.add('error'); hasError = true; }
+  var encrypted = document.getElementById('encrypt-toggle').classList.contains('active');
+  if (encrypted) {
+    var pw = document.getElementById('encrypt-password').value;
+    var confirm = document.getElementById('encrypt-confirm').value;
+    if (pw.length < 4) { alert('密码至少 4 位'); hasError = true; }
+    else if (pw !== confirm) { document.getElementById('error-password').classList.add('visible'); hasError = true; }
+  }
+  if (hasError || uploadState.selectedFiles.length === 0) return;
+  if (typeof doUpload === 'function') doUpload();
+});
+</script>
+
+<script>
+// ===== TAG MANAGER =====
+var TagManager = {
+  open: function() {
+    document.getElementById('tag-panel').classList.add('active');
+    document.getElementById('tag-overlay').classList.add('active');
+    this.render();
+  },
+  close: function() {
+    document.getElementById('tag-panel').classList.remove('active');
+    document.getElementById('tag-overlay').classList.remove('active');
+  },
+  render: function() {
+    var list = document.getElementById('tag-list');
+    var tags = DataAccess.tags.slice().sort(function(a, b) {
+      return DataAccess.getPhotoCount(b.tagId) - DataAccess.getPhotoCount(a.tagId);
+    });
+    if (tags.length === 0) {
+      list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-dim);font-size:13px">还没有标签，在下方创建</div>';
+      return;
+    }
+    list.innerHTML = tags.map(function(tag) {
+      return '<div class="tag-list-item" data-id="' + tag.tagId + '">' +
+        '<div><span class="tag-list-name">' + tag.tagName + '</span>' +
+        '<span class="tag-list-count">' + DataAccess.getPhotoCount(tag.tagId) + ' 张</span></div>' +
+        '<div class="tag-list-actions">' +
+        '<button onclick="TagManager.editTag(\'' + tag.tagId + '\',\'' + tag.tagName + '\')" title="编辑">✎</button>' +
+        '<button onclick="TagManager.deleteTag(\'' + tag.tagId + '\',\'' + tag.tagName + '\')" title="删除">🗑</button>' +
+        '</div></div>';
+    }).join('');
+  },
+  addTag: function() {
+    var input = document.getElementById('new-tag-input');
+    var name = input.value.trim();
+    if (name.length < 2 || name.length > 6) { alert('标签名需 2-6 个字符'); return; }
+    if (DataAccess.tags.some(function(t) { return t.tagName === name; })) { alert('该标签已存在'); return; }
+    DataAccess.addTag(name).then(function() {
+      input.value = '';
+      TagManager.render();
+      if (typeof plausible === 'function') plausible('tag_create', {props: {tag_name: name}});
+    });
+  },
+  editTag: function(tagId, oldName) {
+    var newName = prompt('编辑标签名', oldName);
+    if (!newName || newName === oldName) return;
+    if (newName.length < 2 || newName.length > 6) { alert('标签名需 2-6 个字符'); return; }
+    DataAccess.updateTag(tagId, newName).then(function() { TagManager.render(); });
+  },
+  deleteTag: function(tagId, tagName) {
+    var count = DataAccess.getPhotoCount(tagId);
+    var msg = count > 0 ? '该标签下有 ' + count + ' 张照片，删除后照片将变为未分类。确定删除？' : '确定删除标签「' + tagName + '」？';
+    if (!confirm(msg)) return;
+    DataAccess.deleteTag(tagId).then(function() {
+      TagManager.render();
+      if (typeof plausible === 'function') plausible('tag_delete', {props: {tag_name: tagName, affected_photos: count}});
+    });
+  }
+};
+
+document.getElementById('menu-tags').addEventListener('click', function() { TagManager.open(); });
+document.getElementById('tag-close').addEventListener('click', function() { TagManager.close(); });
+document.getElementById('tag-overlay').addEventListener('click', function() { TagManager.close(); });
+document.getElementById('btn-add-tag-submit').addEventListener('click', function() { TagManager.addTag(); });
+document.getElementById('new-tag-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') TagManager.addTag(); });
+
+// ===== UNLOCK MANAGER =====
+var UnlockManager = {
+  pendingPhotoId: null,
+  getUnlockedSet: function() {
+    var raw = sessionStorage.getItem('unlockedPhotos');
+    return raw ? JSON.parse(raw) : [];
+  },
+  saveUnlockedSet: function(arr) { sessionStorage.setItem('unlockedPhotos', JSON.stringify(arr)); },
+  isUnlocked: function(photoId) { return this.getUnlockedSet().indexOf(photoId) !== -1; },
+  markUnlocked: function(photoId) {
+    var arr = this.getUnlockedSet();
+    if (arr.indexOf(photoId) === -1) arr.push(photoId);
+    this.saveUnlockedSet(arr);
+  },
+  showPrompt: function(photoId) {
+    this.pendingPhotoId = photoId;
+    document.getElementById('unlock-overlay').classList.add('active');
+    document.getElementById('unlock-password').value = '';
+    document.getElementById('unlock-error').classList.remove('visible');
+    document.getElementById('unlock-password').focus();
+  },
+  attemptUnlock: function() {
+    var password = document.getElementById('unlock-password').value;
+    if (!password || !this.pendingPhotoId) return;
+    var photo = DataAccess.photos.find(function(p) { return p.docId === UnlockManager.pendingPhotoId; });
+    if (!photo) return;
+    var m = window.firebaseModules;
+    var store = window.firebaseStorage;
+    var self = this;
+    m.getDownloadURL(m.ref(store, photo.storagePath)).then(function(url) {
+      return fetch(url).then(function(resp) { return resp.blob(); });
+    }).then(function(blob) {
+      return PhotoCrypto.decrypt(blob, password, photo.salt, photo.iv).then(function(decrypted) {
+        var decryptedUrl = URL.createObjectURL(decrypted);
+        self.markUnlocked(self.pendingPhotoId);
+        var card = document.querySelector('.photo-card[data-doc-id="' + self.pendingPhotoId + '"]');
+        if (card) {
+          card.classList.remove('locked');
+          var img = card.querySelector('img');
+          img.src = decryptedUrl;
+          img.dataset.decryptedSrc = decryptedUrl;
+          var lockOv = card.querySelector('.lock-overlay');
+          if (lockOv) lockOv.remove();
+        }
+        document.getElementById('unlock-overlay').classList.remove('active');
+        if (typeof plausible === 'function') plausible('photo_unlock', {props: {success: true}});
+      });
+    }).catch(function() {
+      document.getElementById('unlock-error').classList.add('visible');
+      if (typeof plausible === 'function') plausible('photo_unlock', {props: {success: false}});
+    });
+  }
+};
+
+document.getElementById('btn-unlock').addEventListener('click', function() { UnlockManager.attemptUnlock(); });
+document.getElementById('unlock-password').addEventListener('keydown', function(e) { if (e.key === 'Enter') UnlockManager.attemptUnlock(); });
+document.getElementById('btn-unlock-cancel').addEventListener('click', function() { document.getElementById('unlock-overlay').classList.remove('active'); });
+document.getElementById('unlock-overlay').addEventListener('click', function(e) { if (e.target === e.currentTarget) document.getElementById('unlock-overlay').classList.remove('active'); });
+
+// ===== SETTINGS (Password Change) =====
+document.getElementById('menu-settings').addEventListener('click', function() {
+  document.getElementById('settings-panel').classList.add('active');
+  document.getElementById('settings-overlay').classList.add('active');
+});
+document.getElementById('settings-close').addEventListener('click', function() {
+  document.getElementById('settings-panel').classList.remove('active');
+  document.getElementById('settings-overlay').classList.remove('active');
+});
+document.getElementById('settings-overlay').addEventListener('click', function() {
+  document.getElementById('settings-panel').classList.remove('active');
+  document.getElementById('settings-overlay').classList.remove('active');
+});
+document.getElementById('btn-save-password').addEventListener('click', function() {
+  var m = window.firebaseModules;
+  var newPw = document.getElementById('settings-new-pw').value;
+  var confirmPw = document.getElementById('settings-confirm-pw').value;
+  if (newPw.length < 4) { alert('密码至少 4 位'); return; }
+  if (newPw !== confirmPw) { alert('两次输入的密码不一致'); return; }
+  var user = window.firebaseAuth.currentUser;
+  if (!user) { alert('请先登录'); return; }
+  m.updatePassword(user, newPw).then(function() {
+    alert('密码修改成功，请重新登录');
+    AuthManager.logout();
+    document.getElementById('settings-panel').classList.remove('active');
+    document.getElementById('settings-overlay').classList.remove('active');
+  }).catch(function() { alert('密码修改失败，请重新登录后再试'); });
+});
+
+// ===== DELETE PHOTO =====
+function deletePhoto(docId, name) {
+  if (!confirm('确定删除「' + name + '」？此操作不可恢复。')) return;
+  DataAccess.deletePhoto(docId).then(function() {
+    if (typeof plausible === 'function') plausible('photo_delete', {props: {photo_id: docId}});
+  });
+}
+
+// ===== PHOTOS DATA LISTENER =====
+window.addEventListener('photos-updated', function(e) {
+  if (typeof renderAll === 'function') renderAll();
+});
+window.addEventListener('tags-updated', function() {
+  if (typeof renderAll === 'function') renderAll();
+});
+
+// ===== INITIALIZATION =====
+window.addEventListener('firebase-ready', function() {
+  DataAccess.init().then(function() {
+    AuthManager.init();
+  });
+});
+// Fallback for non-Firebase mode
+setTimeout(function() {
+  if (!window.firebaseApp) {
+    console.log('Firebase not available, using static data');
+    AuthManager.currentRole = 'visitor';
+    document.getElementById('identity-overlay').classList.remove('active');
+  }
+}, 3000);
 </script>
 </body>
 </html>
