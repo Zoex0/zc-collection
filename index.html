@@ -2134,6 +2134,7 @@ function deletePhoto(docId, name) {
 
 // ===== PHOTOS DATA LISTENER =====
 window.addEventListener('photos-updated', function(e) {
+  if (e.detail && e.detail.length > 0) window.currentPhotos = e.detail;
   if (typeof renderAll === 'function') renderAll();
 });
 window.addEventListener('tags-updated', function() {
