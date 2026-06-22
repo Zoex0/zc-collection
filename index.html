@@ -1121,8 +1121,8 @@
 
   function renderTimeline(groups) {
     var timeline = document.getElementById('timeline');
-    var isAdmin = AuthManager && AuthManager.isAdmin();
-    var isVisitor = AuthManager && AuthManager.isVisitor();
+    var isAdmin = (typeof AuthManager !== 'undefined') && AuthManager.isAdmin();
+    var isVisitor = (typeof AuthManager !== 'undefined') && AuthManager.isVisitor();
     var unlockedIds = (typeof UnlockManager !== 'undefined') ? UnlockManager.getUnlockedSet() : [];
     var globalIdx = 0;
     var groupsHTML = groups.map(function(group) {
