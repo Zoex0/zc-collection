@@ -11,13 +11,11 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs, getDoc, onSnapshot, query, orderBy, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-  import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyC5Yx5QHLqy47WadZXgPX_AYgExoTFdF5Y",
     authDomain: "zc-s-collection.firebaseapp.com",
     projectId: "zc-s-collection",
-    storageBucket: "zc-s-collection.firebasestorage.app",
     messagingSenderId: "591578887314",
     appId: "1:591578887314:web:fb97364c8be9c36c95e24b",
     measurementId: "G-H3Y4RN7LTN"
@@ -28,12 +26,10 @@
     window.firebaseApp = app;
     window.firebaseAuth = getAuth(app);
     window.firebaseDB = getFirestore(app);
-    window.firebaseStorage = getStorage(app);
     window.firebaseModules = {
       signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword,
       collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs, getDoc,
-      onSnapshot, query, orderBy, runTransaction, serverTimestamp,
-      ref, uploadBytesResumable, getDownloadURL, deleteObject
+      onSnapshot, query, orderBy, runTransaction, serverTimestamp
     };
     window.dispatchEvent(new Event('firebase-ready'));
   } catch(e) { console.warn('Firebase init failed:', e); }
@@ -862,7 +858,7 @@
       <button class="identity-verify-btn" id="btn-verify">验证</button>
     </div>
     <div class="identity-lock-msg" id="identity-lock-msg">密码错误次数过多，请 <span id="lock-countdown">30</span> 秒后重试</div>
-    <div class="identity-privacy">本站使用 Firebase 存储服务，不收集访客个人信息</div>
+    <div class="identity-privacy">本站使用 GitHub Pages 托管，不收集访客个人信息</div>
   </div>
 </div>
 
@@ -1384,6 +1380,10 @@
   <div class="form-group"><label class="form-label">新密码</label><input class="form-input" id="settings-new-pw" type="password" placeholder="最少 4 位" minlength="4"></div>
   <div class="form-group"><label class="form-label">确认新密码</label><input class="form-input" id="settings-confirm-pw" type="password" placeholder="再次输入新密码"></div>
   <button class="btn-publish" id="btn-save-password" style="margin-top:16px;width:100%">保存密码</button>
+  <div style="border-top:1px solid rgba(255,255,255,0.1);margin:20px 0;padding-top:16px">
+    <div class="form-group"><label class="form-label">GitHub Token（上传照片需要）</label><input class="form-input" id="settings-github-token" type="password" placeholder="ghp_xxxx（需要 repo 权限）"><div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px">Token 仅在会话中保留，关闭标签页后清除</div></div>
+    <button class="btn-publish" id="btn-save-token" style="margin-top:8px;width:100%;background:rgba(255,255,255,0.08)">保存 Token</button>
+  </div>
 </div>
 
 <!-- Admin Toolbar -->
@@ -1528,6 +1528,87 @@ var PhotoCrypto = {
   }
 };
 
+// ===== GITHUB API (replaces Firebase Storage) =====
+var GitHubAPI = {
+  owner: 'Zoex0',
+  repo: 'zc-collection',
+  branch: 'main',
+
+  getToken: function() {
+    return sessionStorage.getItem('github_token') || '';
+  },
+
+  setToken: function(token) {
+    sessionStorage.setItem('github_token', token);
+  },
+
+  blobToBase64: function(blob) {
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onloadend = function() {
+        resolve(reader.result.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  },
+
+  generateFilename: function(blob) {
+    var ts = Date.now();
+    var ext = blob.type === 'image/jpeg' ? '.jpg' : '.bin';
+    return ts + ext;
+  },
+
+  upload: function(blob, filename) {
+    var self = this;
+    var path = 'photos/' + filename;
+    return this.blobToBase64(blob).then(function(base64) {
+      return fetch('https://api.github.com/repos/' + self.owner + '/' + self.repo + '/contents/' + path, {
+        method: 'PUT',
+        headers: {
+          'Authorization': 'token ' + self.getToken(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: 'upload: ' + filename,
+          content: base64,
+          branch: self.branch
+        })
+      }).then(function(resp) {
+        if (!resp.ok) throw new Error('GitHub upload failed: ' + resp.status);
+        return resp.json();
+      }).then(function() { return path; });
+    });
+  },
+
+  deleteFile: function(path) {
+    var self = this;
+    var token = this.getToken();
+    if (!token || !path) return Promise.resolve();
+    var url = 'https://api.github.com/repos/' + self.owner + '/' + self.repo + '/contents/' + path;
+    return fetch(url + '?ref=' + self.branch, {
+      headers: { 'Authorization': 'token ' + token }
+    }).then(function(resp) {
+      if (!resp.ok) return null;
+      return resp.json();
+    }).then(function(data) {
+      if (!data || !data.sha) return null;
+      return fetch(url, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': 'token ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: 'delete: ' + path,
+          sha: data.sha,
+          branch: self.branch
+        })
+      });
+    }).catch(function() {});
+  }
+};
+
 // ===== DATA ACCESS (Firestore) =====
 var DataAccess = {
   photos: [],
@@ -1569,27 +1650,29 @@ var DataAccess = {
   addPhoto: function(photoData, imageBlob, thumbnailBlob, encryptedData) {
     var m = window.firebaseModules;
     var db = window.firebaseDB;
-    var store = window.firebaseStorage;
     var photoRef = m.doc(m.collection(db, 'photos'));
     var photoId = photoRef.id;
-    var ext = photoData.encrypted ? 'encrypted.bin' : 'original.jpg';
-    var imgRef = m.ref(store, 'photos/' + photoId + '/' + ext);
-    var metadata = { customMetadata: { encrypted: String(photoData.encrypted) } };
+    var mainFilename = photoData.encrypted ? (photoId + '.bin') : (photoId + '.jpg');
+    var thumbFilename = photoId + '_blur.jpg';
 
-    return m.uploadBytesResumable(imgRef, imageBlob, metadata).then(function() {
+    // Upload main image to GitHub
+    return GitHubAPI.upload(imageBlob, mainFilename).then(function(mainPath) {
+      // Upload thumbnail if exists (encrypted photos)
       if (thumbnailBlob) {
-        var thumbRef = m.ref(store, 'photos/' + photoId + '/thumbnail_blur.jpg');
-        return m.uploadBytesResumable(thumbRef, thumbnailBlob);
+        return GitHubAPI.upload(thumbnailBlob, thumbFilename).then(function(thumbPath) {
+          return { mainPath: mainPath, thumbPath: thumbPath };
+        });
       }
-    }).then(function() {
+      return { mainPath: mainPath, thumbPath: null };
+    }).then(function(paths) {
       return m.setDoc(photoRef, {
         name: photoData.name,
         date: photoData.date,
         description: photoData.description || '',
         tags: photoData.tags || [],
         encrypted: photoData.encrypted,
-        storagePath: 'photos/' + photoId + '/' + ext,
-        thumbnailPath: thumbnailBlob ? 'photos/' + photoId + '/thumbnail_blur.jpg' : null,
+        storagePath: paths.mainPath,
+        thumbnailPath: paths.thumbPath,
         salt: (encryptedData && encryptedData.salt) || null,
         iv: (encryptedData && encryptedData.iv) || null,
         version: 1,
@@ -1621,14 +1704,15 @@ var DataAccess = {
   deletePhoto: function(docId) {
     var m = window.firebaseModules;
     var db = window.firebaseDB;
-    var store = window.firebaseStorage;
-    var promises = [
-      m.deleteObject(m.ref(store, 'photos/' + docId + '/original.jpg')).catch(function(){}),
-      m.deleteObject(m.ref(store, 'photos/' + docId + '/encrypted.bin')).catch(function(){}),
-      m.deleteObject(m.ref(store, 'photos/' + docId + '/thumbnail_blur.jpg')).catch(function(){})
-    ];
-    return Promise.all(promises).then(function() {
-      return m.deleteDoc(m.doc(db, 'photos', docId));
+    // First get photo doc to find file paths
+    return m.getDoc(m.doc(db, 'photos', docId)).then(function(snap) {
+      if (!snap.exists()) throw new Error('Photo not found');
+      var data = snap.data();
+      var paths = [data.storagePath, data.thumbnailPath].filter(Boolean);
+      // Delete GitHub files + Firestore doc in parallel
+      var deletePromises = paths.map(function(p) { return GitHubAPI.deleteFile(p); });
+      deletePromises.push(m.deleteDoc(m.doc(db, 'photos', docId)));
+      return Promise.all(deletePromises);
     });
   },
 
@@ -1865,6 +1949,13 @@ function handleFiles(files) {
 
 // ===== UPLOAD FLOW =====
 function doUpload() {
+  // Check GitHub token
+  if (!GitHubAPI.getToken()) {
+    var token = prompt('上传照片需要 GitHub Token（在 github.com → Settings → Developer settings → Personal access tokens 创建，勾选 repo 权限）。\n\n请输入 Token：');
+    if (!token || !token.trim()) return;
+    GitHubAPI.setToken(token.trim());
+  }
+
   var name = document.getElementById('upload-name').value.trim();
   var date = document.getElementById('upload-date').value;
   var desc = document.getElementById('upload-desc').value.trim();
@@ -2063,11 +2154,10 @@ var UnlockManager = {
     if (!password || !this.pendingPhotoId) return;
     var photo = DataAccess.photos.find(function(p) { return p.docId === UnlockManager.pendingPhotoId; });
     if (!photo) return;
-    var m = window.firebaseModules;
-    var store = window.firebaseStorage;
     var self = this;
-    m.getDownloadURL(m.ref(store, photo.storagePath)).then(function(url) {
-      return fetch(url).then(function(resp) { return resp.blob(); });
+    fetch(photo.storagePath).then(function(resp) {
+      if (!resp.ok) throw new Error('Fetch failed');
+      return resp.blob();
     }).then(function(blob) {
       return PhotoCrypto.decrypt(blob, password, photo.salt, photo.iv).then(function(decrypted) {
         var decryptedUrl = URL.createObjectURL(decrypted);
@@ -2123,6 +2213,14 @@ document.getElementById('btn-save-password').addEventListener('click', function(
     document.getElementById('settings-panel').classList.remove('active');
     document.getElementById('settings-overlay').classList.remove('active');
   }).catch(function() { alert('密码修改失败，请重新登录后再试'); });
+});
+
+document.getElementById('btn-save-token').addEventListener('click', function() {
+  var token = document.getElementById('settings-github-token').value.trim();
+  if (!token) { alert('请输入 GitHub Token'); return; }
+  GitHubAPI.setToken(token);
+  alert('Token 已保存（会话有效）');
+  document.getElementById('settings-github-token').value = '';
 });
 
 // ===== DELETE PHOTO =====
