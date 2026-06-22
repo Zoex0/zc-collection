@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // 公开照片原图：所有人可读
+    match /photos/{photoId}/original.jpg {
+      allow read: if resource.metadata.customMetadata.encrypted != 'true';
+      allow write: if request.auth != null
+        && request.auth.uid == 'LKD6nn7yCaQtNoTVGNf02IYKNBE2';
+    }
+
+    // 加密照片文件：仅管理员可读
+    match /photos/{photoId}/encrypted.bin {
+      allow read: if request.auth != null
+        && request.auth.uid == 'LKD6nn7yCaQtNoTVGNf02IYKNBE2';
+      allow write: if request.auth != null
+        && request.auth.uid == 'LKD6nn7yCaQtNoTVGNf02IYKNBE2';
+    }
+
+    // 模糊缩略图：所有人可读（用于锁定态展示）
+    match /photos/{photoId}/thumbnail_blur.jpg {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.auth.uid == 'LKD6nn7yCaQtNoTVGNf02IYKNBE2';
+    }
+  }
+}
