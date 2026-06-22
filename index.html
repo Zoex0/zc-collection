@@ -844,7 +844,7 @@
 </head>
 <body>
 <!-- Identity Selection Modal -->
-<div class="identity-overlay" id="identity-overlay">
+<div class="identity-overlay active" id="identity-overlay">
   <div class="identity-modal">
     <div class="brand">ZC'S COLLECTION</div>
     <div class="subtitle">选择你的身份</div>
@@ -1224,14 +1224,16 @@
   initLazyLoading();
   renderFooter();
 
-  // Dismiss page loader
-  window.addEventListener('load', () => {
+  // Dismiss page loader (DOMContentLoaded + 1.5s timeout fallback for slow CDNs)
+  function dismissLoader() {
     const loader = document.getElementById('page-loader');
-    if (loader) {
-      loader.classList.add('fade-out');
-      setTimeout(() => loader.remove(), 600);
-    }
-  });
+    if (!loader) return;
+    loader.classList.add('fade-out');
+    setTimeout(() => loader.remove(), 600);
+  }
+  if (document.readyState === 'complete') { dismissLoader(); }
+  else { window.addEventListener('load', dismissLoader); }
+  setTimeout(dismissLoader, 1500);
 
   // ===== INTERACTION =====
 
@@ -2246,12 +2248,11 @@ window.addEventListener('firebase-ready', function() {
     AuthManager.init();
   });
 });
-// Fallback for non-Firebase mode
+// Fallback for non-Firebase mode (slow CDN / offline)
 setTimeout(function() {
   if (!window.firebaseApp) {
-    console.log('Firebase not available, using static data');
-    AuthManager.currentRole = 'visitor';
-    document.getElementById('identity-overlay').classList.remove('active');
+    console.log('Firebase not available, showing identity selection');
+    AuthManager.init();
   }
 }, 3000);
 </script>
