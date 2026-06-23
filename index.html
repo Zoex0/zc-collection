@@ -1296,6 +1296,16 @@
     if (e.key === 'ArrowRight') navLightbox(1);
   });
 
+  // Esc key dismisses identity modal → default to visitor
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var overlay = document.getElementById('identity-overlay');
+      if (overlay && overlay.classList.contains('active') && typeof AuthManager !== 'undefined') {
+        AuthManager.setRole('visitor');
+      }
+    }
+  });
+
   // Close lightbox on backdrop click
   document.getElementById('lightbox').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeLightbox();
@@ -1785,7 +1795,7 @@ const AuthManager = {
   async verifyAdmin(password) {
     try {
       if (!window.firebaseModules) { alert('Firebase 未就绪'); return; }
-      var adminEmail = sessionStorage.getItem('adminEmail') || 'admin@zc-collection.com';
+      var adminEmail = sessionStorage.getItem('adminEmail') || 'xieqing0111@gmail.com';
       await window.firebaseModules.signInWithEmailAndPassword(window.firebaseAuth, adminEmail, password);
       this.failedAttempts = 0;
       this.setRole('admin');
@@ -1848,7 +1858,7 @@ document.addEventListener('click', function(e) {
 });
 
 // ===== UPLOAD PANEL =====
-var uploadState = { isOpen: false, isUploading: false, selectedFiles: [] };
+var uploadState = { isOpen: false, isUploading: false, selectedFiles: [], editingDocId: null, editingVersion: null };
 
 function openUploadPanel() {
   uploadState.isOpen = true;
@@ -1880,6 +1890,10 @@ function resetUploadForm() {
   document.querySelectorAll('.form-error').forEach(function(el) { el.classList.remove('visible'); });
   document.querySelectorAll('.form-input.error').forEach(function(el) { el.classList.remove('error'); });
   document.getElementById('file-input').value = '';
+  uploadState.editingDocId = null;
+  uploadState.editingVersion = null;
+  document.querySelector('.upload-panel-title').textContent = '上传照片';
+  document.getElementById('btn-publish').textContent = '发布';
 }
 
 function renderUploadTags() {
@@ -1951,6 +1965,47 @@ function handleFiles(files) {
 
 // ===== UPLOAD FLOW =====
 function doUpload() {
+  // === EDIT MODE: update existing photo metadata ===
+  if (uploadState.editingDocId) {
+    var name = document.getElementById('upload-name').value.trim();
+    var date = document.getElementById('upload-date').value;
+    var desc = document.getElementById('upload-desc').value.trim();
+    var selectedTags = [];
+    document.querySelectorAll('#upload-tags .tag-pill.selected').forEach(function(el) {
+      selectedTags.push(el.dataset.tagId);
+    });
+
+    var updates = {
+      name: name,
+      date: date,
+      description: desc,
+      tags: selectedTags,
+      _expectedVersion: uploadState.editingVersion
+    };
+
+    document.getElementById('btn-publish').disabled = true;
+    document.getElementById('upload-status').classList.add('active');
+    document.getElementById('status-text').textContent = '正在保存...';
+    document.getElementById('progress-fill').style.width = '50%';
+
+    DataAccess.updatePhoto(uploadState.editingDocId, updates).then(function() {
+      document.getElementById('progress-fill').style.width = '100%';
+      document.getElementById('status-text').innerHTML = '<span class="upload-success">\u2713 保存成功！</span>';
+      if (typeof plausible === 'function') plausible('photo_edit', { props: { photo_id: uploadState.editingDocId } });
+      setTimeout(function() { closeUploadPanel(); }, 1200);
+    }).catch(function(err) {
+      if (err.message === 'VERSION_CONFLICT') {
+        alert('照片已被其他人修改，请刷新页面后重新编辑。');
+      } else {
+        alert('保存失败：' + err.message);
+      }
+      document.getElementById('btn-publish').disabled = false;
+      document.getElementById('upload-status').classList.remove('active');
+    });
+    return;
+  }
+
+  // === UPLOAD MODE: create new photo(s) ===
   // Check GitHub token
   if (!GitHubAPI.getToken()) {
     var token = prompt('上传照片需要 GitHub Token（在 github.com → Settings → Developer settings → Personal access tokens 创建，勾选 repo 权限）。\n\n请输入 Token：');
@@ -2060,7 +2115,9 @@ document.getElementById('btn-publish').addEventListener('click', function() {
     if (pw.length < 4) { alert('密码至少 4 位'); hasError = true; }
     else if (pw !== confirm) { document.getElementById('error-password').classList.add('visible'); hasError = true; }
   }
-  if (hasError || uploadState.selectedFiles.length === 0) return;
+  var isEditing = !!uploadState.editingDocId;
+  if (hasError) return;
+  if (!isEditing && uploadState.selectedFiles.length === 0) return;
   if (typeof doUpload === 'function') doUpload();
 });
 </script>
