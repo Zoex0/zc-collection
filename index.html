@@ -1793,8 +1793,15 @@ const AuthManager = {
     } catch (err) {
       this.failedAttempts++;
       if (typeof plausible === 'function') plausible('auth_failure', { props: { attempt_count: this.failedAttempts } });
+      var errEl = document.getElementById('identity-error');
+      // Show specific error message for debugging
+      if (err.code === 'auth/user-not-found') { errEl.textContent = '账号不存在，请先在 Firebase Console 创建'; }
+      else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') { errEl.textContent = '密码错误'; }
+      else if (err.code === 'auth/too-many-requests') { errEl.textContent = '尝试次数过多，请稍后再试'; }
+      else { errEl.textContent = '登录失败: ' + (err.code || err.message); }
+      errEl.classList.add('visible');
+      document.getElementById('admin-password').classList.add('error');
       if (this.failedAttempts >= 3) { this.lockUI(); }
-      else { document.getElementById('identity-error').classList.add('visible'); document.getElementById('admin-password').classList.add('error'); }
     }
   },
   lockUI() {
@@ -1829,9 +1836,7 @@ document.getElementById('btn-verify').addEventListener('click', function() {
 document.getElementById('admin-password').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') document.getElementById('btn-verify').click();
 });
-document.getElementById('identity-overlay').addEventListener('click', function(e) {
-  if (e.target === e.currentTarget) AuthManager.setRole('visitor');
-});
+// Identity overlay: no backdrop click dismiss (prevent accidental visitor entry)
 
 // ===== ADMIN TOOLBAR =====
 window.addEventListener('role-changed', function(e) {
