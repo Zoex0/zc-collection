@@ -1768,17 +1768,8 @@ var DataAccess = {
 const AuthManager = {
   failedAttempts: 0, lockTimer: null, currentRole: null,
   init() {
-    const savedRole = sessionStorage.getItem('role');
-    if (savedRole === 'admin' || savedRole === 'visitor') {
-      if (savedRole === 'admin' && window.firebaseModules) {
-        window.firebaseModules.onAuthStateChanged(window.firebaseAuth, (user) => {
-          if (user) { this.setRole('admin', false); }
-          else { sessionStorage.removeItem('role'); this.showModal(); }
-        });
-        return;
-      }
-      this.setRole(savedRole, false);
-    } else { this.showModal(); }
+    // Always show identity modal — user explicitly chooses role every visit
+    this.showModal();
   },
   showModal() { document.getElementById('identity-overlay').classList.add('active'); },
   hideModal() { document.getElementById('identity-overlay').classList.remove('active'); },
@@ -2305,11 +2296,10 @@ window.addEventListener('firebase-ready', function() {
     AuthManager.init();
   });
 });
-// Fallback for non-Firebase mode (slow CDN / offline)
+// Fallback: ensure identity modal is interactive even if Firebase CDN is slow
 setTimeout(function() {
   if (!window.firebaseApp) {
-    console.log('Firebase not available, showing identity selection');
-    AuthManager.init();
+    console.log('Firebase not available — site running in static mode');
   }
 }, 3000);
 </script>
