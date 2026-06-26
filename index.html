@@ -1575,6 +1575,8 @@ var GitHubAPI = {
     var self = this;
     var path = 'photos/' + filename;
     return this.blobToBase64(blob).then(function(base64) {
+      var controller = new AbortController();
+      var timeout = setTimeout(function() { controller.abort(); }, 60000);
       return fetch('https://api.github.com/repos/' + self.owner + '/' + self.repo + '/contents/' + path, {
         method: 'PUT',
         headers: {
@@ -1585,11 +1587,17 @@ var GitHubAPI = {
           message: 'upload: ' + filename,
           content: base64,
           branch: self.branch
-        })
+        }),
+        signal: controller.signal
       }).then(function(resp) {
+        clearTimeout(timeout);
         if (!resp.ok) throw new Error('GitHub upload failed: ' + resp.status);
         return resp.json();
-      }).then(function() { return path; });
+      }).then(function() { return path; }).catch(function(err) {
+        clearTimeout(timeout);
+        if (err.name === 'AbortError') throw new Error('上传超时（60秒），请检查网络后重试');
+        throw err;
+      });
     });
   },
 
@@ -2047,7 +2055,7 @@ function doUpload() {
     statusText.textContent = '正在压缩图片...' + batchLabel;
     progressFill.style.width = '10%';
 
-    ImageCompressor.compress(file).then(function(compressed) {
+    return ImageCompressor.compress(file).then(function(compressed) {
       var uploadBlob = compressed;
       var encData = null;
       var thumbBlob = null;
@@ -2081,14 +2089,20 @@ function doUpload() {
       }).then(function() {
         progressFill.style.width = Math.round(((idx + 1) / files.length) * 90) + '%';
         idx++;
-        uploadNext();
+        return uploadNext();
       });
     });
   }
 
   uploadNext().catch(function(err) {
     console.error('Upload failed:', err);
-    statusText.innerHTML = '<div style="color:var(--error)">上传失败</div>' +
+    var errMsg = err.message || '未知错误';
+    if (errMsg.indexOf('permission') !== -1 || errMsg.indexOf('Missing or insufficient') !== -1) {
+      errMsg = 'Firestore 权限不足 — 请检查 Security Rules 是否正确部署';
+    } else if (errMsg.indexOf('超时') !== -1) {
+      errMsg = 'GitHub API 超时 — 请检查网络或使用代理';
+    }
+    statusText.innerHTML = '<div style="color:var(--error)">上传失败：' + errMsg + '</div>' +
       '<button class="retry-btn" onclick="document.getElementById(\'btn-publish\').click()">' +
       '<span class="retry-emoji">\uD83E\uDD7A</span> 哎呀失败了，再试一次吧～</button>';
     uploadState.isUploading = false;
