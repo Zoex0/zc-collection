@@ -1092,6 +1092,11 @@
     renderTagFilter();
     renderTimeline(groups);
     initLazyLoading();
+
+    // 同步更新 Lightbox 图片列表
+    allPhotoSrcs.length = 0;
+    groups.forEach(function(g) { g.photos.forEach(function(p) { allPhotoSrcs.push(p.src); }); });
+
     document.querySelectorAll('.fade-up').forEach(function(el) {
       el.classList.remove('visible');
       fadeObserver.observe(el);
