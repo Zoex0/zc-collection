@@ -1,27 +1,31 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 管理员身份判断：通过 Firebase Auth 登录的指定 UID
+    // 【临时调试】先允许所有已登录用户写入，确认 UID 后再锁定
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
     function isAdmin() {
       return request.auth != null
         && request.auth.uid == 'LKD6nn7yCaQtNoTVGNf02IYKNBE2';
     }
 
-    // photos 集合：所有人可读，仅管理员可写
+    // photos 集合：所有人可读，已登录用户可写（调试中）
     match /photos/{photoId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin();
+      allow create, update, delete: if isAuthenticated();
     }
 
-    // tags 集合：所有人可读，仅管理员可写
+    // tags 集合：所有人可读，已登录用户可写（调试中）
     match /tags/{tagId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin();
+      allow create, update, delete: if isAuthenticated();
     }
 
-    // settings 集合：仅管理员可读写
+    // settings 集合：已登录用户可读写（调试中）
     match /settings/{docId} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
   }
 }

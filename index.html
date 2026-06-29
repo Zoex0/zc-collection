@@ -1685,6 +1685,12 @@ var DataAccess = {
       }
       return { mainPath: mainPath, thumbPath: null };
     }).then(function(paths) {
+      // 诊断日志：检查 Firestore 写入时的认证状态
+      var currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      console.log('=== Firestore setDoc 写入前 ===');
+      console.log('当前用户:', currentUser ? currentUser.uid : 'null (未登录!)');
+      console.log('写入目标: photos/' + photoId);
+      console.log('==============================');
       return m.setDoc(photoRef, {
         name: photoData.name,
         date: photoData.date,
@@ -1796,6 +1802,13 @@ const AuthManager = {
       if (!window.firebaseModules) { alert('Firebase 未就绪'); return; }
       var adminEmail = sessionStorage.getItem('adminEmail') || 'xieqing0111@gmail.com';
       await window.firebaseModules.signInWithEmailAndPassword(window.firebaseAuth, adminEmail, password);
+      var user = window.firebaseAuth.currentUser;
+      console.log('=== Firebase Auth 登录成功 ===');
+      console.log('当前用户 UID:', user ? user.uid : 'null');
+      console.log('当前用户 Email:', user ? user.email : 'null');
+      console.log('Security Rules 中的 UID: LKD6nn7yCaQtNoTVGNf02IYKNBE2');
+      console.log('UID 是否匹配:', user && user.uid === 'LKD6nn7yCaQtNoTVGNf02IYKNBE2' ? '✅ 匹配' : '❌ 不匹配！这就是权限错误的原因');
+      console.log('==============================');
       this.failedAttempts = 0;
       this.setRole('admin');
     } catch (err) {
