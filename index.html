@@ -1134,7 +1134,7 @@
       var cardsHTML = group.photos.map(function(photo) {
         globalIdx++;
         var idxStr = String(globalIdx).padStart(2, '0');
-        var dayParts = photo.date.split('-');
+        var dayParts = (photo.date || '0000-00-00').split('-');
         var displayDate = dayParts[1] + '.' + dayParts[2];
         var perfs = Array(8).fill('<span class="perf"></span>').join('');
         var isEncrypted = photo.encrypted;
@@ -2002,6 +2002,7 @@ function handleFiles(files) {
 
 // ===== UPLOAD FLOW =====
 function doUpload() {
+  console.log('doUpload called, editingDocId:', uploadState.editingDocId, 'files:', uploadState.selectedFiles.length);
   // === EDIT MODE: update existing photo metadata ===
   if (uploadState.editingDocId) {
     var name = document.getElementById('upload-name').value.trim();
@@ -2045,10 +2046,12 @@ function doUpload() {
   // === UPLOAD MODE: create new photo(s) ===
   // Check GitHub token
   if (!GitHubAPI.getToken()) {
+    console.log('No GitHub token, prompting user...');
     var token = prompt('上传照片需要 GitHub Token（在 github.com → Settings → Developer settings → Personal access tokens 创建，勾选 repo 权限）。\n\n请输入 Token：');
-    if (!token || !token.trim()) return;
+    if (!token || !token.trim()) { console.log('Token prompt cancelled'); return; }
     GitHubAPI.setToken(token.trim());
   }
+  console.log('GitHub token ready, starting upload...');
 
   var name = document.getElementById('upload-name').value.trim();
   var date = document.getElementById('upload-date').value;
@@ -2129,6 +2132,7 @@ function doUpload() {
 
   uploadNext().catch(function(err) {
     console.error('Upload failed:', err);
+    console.error('Error details:', err.code, err.message, err.stack);
     var errMsg = err.message || '未知错误';
     if (errMsg.indexOf('permission') !== -1 || errMsg.indexOf('Missing or insufficient') !== -1) {
       errMsg = 'Firestore 权限不足 — 请检查 Security Rules 是否正确部署';
@@ -2146,6 +2150,7 @@ function doUpload() {
 
 // Publish button handler
 document.getElementById('btn-publish').addEventListener('click', function() {
+  console.log('Publish clicked. files:', uploadState.selectedFiles.length, 'editing:', !!uploadState.editingDocId, 'isUploading:', uploadState.isUploading);
   document.querySelectorAll('.form-error').forEach(function(el) { el.classList.remove('visible'); });
   document.querySelectorAll('.form-input.error').forEach(function(el) { el.classList.remove('error'); });
   var hasError = false;
@@ -2160,7 +2165,7 @@ document.getElementById('btn-publish').addEventListener('click', function() {
   }
   var isEditing = !!uploadState.editingDocId;
   if (hasError) return;
-  if (!isEditing && uploadState.selectedFiles.length === 0) return;
+  if (!isEditing && uploadState.selectedFiles.length === 0) { alert('请先选择要上传的照片'); return; }
   if (typeof doUpload === 'function') doUpload();
 });
 </script>
