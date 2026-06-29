@@ -1551,11 +1551,13 @@ var GitHubAPI = {
   repo: 'zc-collection',
   branch: 'main',
 
-  // 将相对路径转为 raw.githubusercontent.com 直接链接（不依赖 Pages 部署）
+  // 将相对路径转为可访问的 URL（优先用 GitHub Pages，备选 raw）
   toRawUrl: function(path) {
     if (!path) return '';
     if (path.indexOf('http') === 0) return path;
-    return 'https://raw.githubusercontent.com/' + this.owner + '/' + this.repo + '/' + this.branch + '/' + path;
+    // 相对路径在 GitHub Pages 上直接可用（如 photos/xxx.jpg）
+    return path;
+  },
   },
 
   getToken: function() {
@@ -1800,7 +1802,14 @@ var DataAccess = {
 const AuthManager = {
   failedAttempts: 0, lockTimer: null, currentRole: null,
   init() {
-    // Always show identity modal — user explicitly chooses role every visit
+    // 如果当前会话已有角色，直接恢复，不再弹窗
+    var savedRole = sessionStorage.getItem('role');
+    if (savedRole === 'admin' || savedRole === 'visitor') {
+      this.currentRole = savedRole;
+      if (savedRole === 'admin') document.body.classList.add('is-admin');
+      window.dispatchEvent(new CustomEvent('role-changed', { detail: { role: savedRole } }));
+      return;
+    }
     this.showModal();
   },
   showModal() { document.getElementById('identity-overlay').classList.add('active'); },
