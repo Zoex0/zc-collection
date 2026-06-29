@@ -1546,6 +1546,13 @@ var GitHubAPI = {
   repo: 'zc-collection',
   branch: 'main',
 
+  // 将相对路径转为 raw.githubusercontent.com 直接链接（不依赖 Pages 部署）
+  toRawUrl: function(path) {
+    if (!path) return '';
+    if (path.indexOf('http') === 0) return path;
+    return 'https://raw.githubusercontent.com/' + this.owner + '/' + this.repo + '/' + this.branch + '/' + path;
+  },
+
   getToken: function() {
     return sessionStorage.getItem('github_token') || '';
   },
@@ -1658,7 +1665,19 @@ var DataAccess = {
         m.query(m.collection(window.firebaseDB, 'photos'), m.orderBy('date', 'desc')),
         function(snapshot) {
           self.photos = snapshot.docs.map(function(doc) {
-            return Object.assign({ docId: doc.id }, doc.data(), { version: doc.data().version || 0 });
+            var data = doc.data();
+            var dateParts = (data.date || '').split('-');
+            var group = dateParts.length >= 2 ? dateParts[0] + '-' + dateParts[1] : 'unknown';
+            var srcUrl = GitHubAPI.toRawUrl(data.storagePath);
+            var thumbUrl = GitHubAPI.toRawUrl(data.thumbnailPath) || srcUrl;
+            return Object.assign({ docId: doc.id }, data, {
+              version: data.version || 0,
+              // 渲染代码需要这些字段名：
+              src: srcUrl,
+              thumb: thumbUrl,
+              title: data.name || '',
+              group: group
+            });
           });
           window.dispatchEvent(new CustomEvent('photos-updated', { detail: self.photos }));
         },
@@ -2224,7 +2243,7 @@ var UnlockManager = {
     var photo = DataAccess.photos.find(function(p) { return p.docId === UnlockManager.pendingPhotoId; });
     if (!photo) return;
     var self = this;
-    fetch(photo.storagePath).then(function(resp) {
+    fetch(GitHubAPI.toRawUrl(photo.storagePath)).then(function(resp) {
       if (!resp.ok) throw new Error('Fetch failed');
       return resp.blob();
     }).then(function(blob) {
