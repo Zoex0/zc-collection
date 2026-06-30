@@ -1442,8 +1442,8 @@
 <script>
 // ===== IMAGE COMPRESSION (Canvas API) =====
 var ImageCompressor = {
-  MAX_DIMENSION: 2048,
-  JPEG_QUALITY: 0.8,
+  MAX_DIMENSION: 1600,
+  JPEG_QUALITY: 0.75,
   compress: function(file) {
     var self = this;
     return new Promise(function(resolve, reject) {
@@ -1928,7 +1928,10 @@ function renderUploadTags() {
 }
 
 document.getElementById('upload-close').addEventListener('click', closeUploadPanel);
-document.getElementById('upload-overlay').addEventListener('click', closeUploadPanel);
+document.getElementById('upload-overlay').addEventListener('click', function() {
+  if (uploadState.isUploading) return; // 上传进行中，忽略遮罩层点击
+  closeUploadPanel();
+});
 document.getElementById('btn-upload-cancel').addEventListener('click', closeUploadPanel);
 document.getElementById('encrypt-toggle').addEventListener('click', function() {
   this.classList.toggle('active');
@@ -2051,6 +2054,7 @@ function doUpload() {
 
   function uploadNext() {
     if (idx >= files.length) {
+      uploadState.isUploading = false;
       statusText.innerHTML = '<span class="upload-success">\u2713 发布成功！</span>';
       progressFill.style.width = '100%';
       if (typeof plausible === 'function') {
