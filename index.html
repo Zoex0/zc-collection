@@ -6,13 +6,12 @@
 <title>ZC's Collection</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script defer data-domain="YOUR_GITHUB_PAGES_DOMAIN" src="https://plausible.io/js/script.js"></script>
-<!-- Firebase SDK (esm.sh CDN — 国内可访问，专为 ESM 设计) -->
-<script type="module">
-  import { initializeApp } from "https://esm.sh/firebase@10.12.0/app";
-  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword } from "https://esm.sh/firebase@10.12.0/auth";
-  import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs, getDoc, onSnapshot, query, orderBy, runTransaction, serverTimestamp } from "https://esm.sh/firebase@10.12.0/firestore";
-
-  const firebaseConfig = {
+<!-- Firebase SDK (本地托管，无外部 CDN 依赖) -->
+<script src="lib/firebase-app-compat.js"></script>
+<script src="lib/firebase-auth-compat.js"></script>
+<script src="lib/firebase-firestore-compat.js"></script>
+<script>
+  var firebaseConfig = {
     apiKey: "AIzaSyC5Yx5QHLqy47WadZXgPX_AYgExoTFdF5Y",
     authDomain: "zc-s-collection.firebaseapp.com",
     projectId: "zc-s-collection",
@@ -22,15 +21,10 @@
   };
 
   try {
-    const app = initializeApp(firebaseConfig);
-    window.firebaseApp = app;
-    window.firebaseAuth = getAuth(app);
-    window.firebaseDB = getFirestore(app);
-    window.firebaseModules = {
-      signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword,
-      collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs, getDoc,
-      onSnapshot, query, orderBy, runTransaction, serverTimestamp
-    };
+    firebase.initializeApp(firebaseConfig);
+    window.firebaseAuth = firebase.auth();
+    window.firebaseDB = firebase.firestore();
+    window.firebaseReady = true;
     window.dispatchEvent(new Event('firebase-ready'));
   } catch(e) { console.warn('Firebase init failed:', e); }
 </script>
@@ -1551,15 +1545,6 @@ var GitHubAPI = {
   repo: 'zc-collection',
   branch: 'main',
 
-  // 将相对路径转为可访问的 URL（优先用 GitHub Pages，备选 raw）
-  toRawUrl: function(path) {
-    if (!path) return '';
-    if (path.indexOf('http') === 0) return path;
-    // 相对路径在 GitHub Pages 上直接可用（如 photos/xxx.jpg）
-    return path;
-  },
-  },
-
   getToken: function() {
     return sessionStorage.getItem('github_token') || '';
   },
@@ -1651,52 +1636,48 @@ var DataAccess = {
   unsubscribeTags: null,
 
   init: function() {
-    var m = window.firebaseModules;
+    var db = window.firebaseDB;
     var self = this;
-    if (!m) { console.warn('Firebase not ready, using static data'); return Promise.resolve(); }
+    if (!db) { console.warn('Firebase not ready, using static data'); return Promise.resolve(); }
 
     return new Promise(function(resolve) {
       // Listen to tags
-      self.unsubscribeTags = m.onSnapshot(
-        m.query(m.collection(window.firebaseDB, 'tags'), m.orderBy('createdAt')),
-        function(snapshot) {
-          self.tags = snapshot.docs.map(function(doc) { return Object.assign({ tagId: doc.id }, doc.data()); });
-          window.dispatchEvent(new CustomEvent('tags-updated', { detail: self.tags }));
-          resolve();
-        },
-        function(err) { console.warn('Tags listener error:', err); resolve(); }
-      );
+      self.unsubscribeTags = db.collection('tags').orderBy('createdAt')
+        .onSnapshot(
+          function(snapshot) {
+            self.tags = snapshot.docs.map(function(doc) { return Object.assign({ tagId: doc.id }, doc.data()); });
+            window.dispatchEvent(new CustomEvent('tags-updated', { detail: self.tags }));
+            resolve();
+          },
+          function(err) { console.warn('Tags listener error:', err); resolve(); }
+        );
 
       // Listen to photos
-      self.unsubscribePhotos = m.onSnapshot(
-        m.query(m.collection(window.firebaseDB, 'photos'), m.orderBy('date', 'desc')),
-        function(snapshot) {
-          self.photos = snapshot.docs.map(function(doc) {
-            var data = doc.data();
-            var dateParts = (data.date || '').split('-');
-            var group = dateParts.length >= 2 ? dateParts[0] + '-' + dateParts[1] : 'unknown';
-            var srcUrl = GitHubAPI.toRawUrl(data.storagePath);
-            var thumbUrl = GitHubAPI.toRawUrl(data.thumbnailPath) || srcUrl;
-            return Object.assign({ docId: doc.id }, data, {
-              version: data.version || 0,
-              // 渲染代码需要这些字段名：
-              src: srcUrl,
-              thumb: thumbUrl,
-              title: data.name || '',
-              group: group
+      self.unsubscribePhotos = db.collection('photos').orderBy('date', 'desc')
+        .onSnapshot(
+          function(snapshot) {
+            self.photos = snapshot.docs.map(function(doc) {
+              var data = doc.data();
+              var dateParts = (data.date || '').split('-');
+              var group = dateParts.length >= 2 ? dateParts[0] + '-' + dateParts[1] : 'unknown';
+              return Object.assign({ docId: doc.id }, data, {
+                version: data.version || 0,
+                src: data.storagePath || '',
+                thumb: data.thumbnailPath || data.storagePath || '',
+                title: data.name || '',
+                group: group
+              });
             });
-          });
-          window.dispatchEvent(new CustomEvent('photos-updated', { detail: self.photos }));
-        },
-        function(err) { console.warn('Photos listener error:', err); }
-      );
+            window.dispatchEvent(new CustomEvent('photos-updated', { detail: self.photos }));
+          },
+          function(err) { console.warn('Photos listener error:', err); }
+        );
     });
   },
 
   addPhoto: function(photoData, imageBlob, thumbnailBlob, encryptedData) {
-    var m = window.firebaseModules;
     var db = window.firebaseDB;
-    var photoRef = m.doc(m.collection(db, 'photos'));
+    var photoRef = db.collection('photos').doc();
     var photoId = photoRef.id;
     var mainFilename = photoData.encrypted ? (photoId + '.bin') : (photoId + '.jpg');
     var thumbFilename = photoId + '_blur.jpg';
@@ -1711,7 +1692,7 @@ var DataAccess = {
       }
       return { mainPath: mainPath, thumbPath: null };
     }).then(function(paths) {
-      return m.setDoc(photoRef, {
+      return photoRef.set({
         name: photoData.name,
         date: photoData.date,
         description: photoData.description || '',
@@ -1722,63 +1703,59 @@ var DataAccess = {
         salt: (encryptedData && encryptedData.salt) || null,
         iv: (encryptedData && encryptedData.iv) || null,
         version: 1,
-        createdAt: m.serverTimestamp(),
-        updatedAt: m.serverTimestamp()
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
     }).then(function() { return photoId; });
   },
 
   updatePhoto: function(docId, updates) {
-    var m = window.firebaseModules;
     var db = window.firebaseDB;
-    var photoRef = m.doc(db, 'photos', docId);
-    return m.runTransaction(db, function(transaction) {
+    var photoRef = db.collection('photos').doc(docId);
+    return db.runTransaction(function(transaction) {
       return transaction.get(photoRef).then(function(snap) {
-        if (!snap.exists()) throw new Error('Photo not found');
+        if (!snap.exists) throw new Error('Photo not found');
         var current = snap.data();
         if (updates._expectedVersion !== undefined && current.version !== updates._expectedVersion) {
           throw new Error('VERSION_CONFLICT');
         }
         delete updates._expectedVersion;
         updates.version = (current.version || 0) + 1;
-        updates.updatedAt = m.serverTimestamp();
+        updates.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
         transaction.update(photoRef, updates);
       });
     });
   },
 
   deletePhoto: function(docId) {
-    var m = window.firebaseModules;
     var db = window.firebaseDB;
+    var docRef = db.collection('photos').doc(docId);
     // First get photo doc to find file paths
-    return m.getDoc(m.doc(db, 'photos', docId)).then(function(snap) {
-      if (!snap.exists()) throw new Error('Photo not found');
+    return docRef.get().then(function(snap) {
+      if (!snap.exists) throw new Error('Photo not found');
       var data = snap.data();
       var paths = [data.storagePath, data.thumbnailPath].filter(Boolean);
       // Delete GitHub files + Firestore doc in parallel
       var deletePromises = paths.map(function(p) { return GitHubAPI.deleteFile(p); });
-      deletePromises.push(m.deleteDoc(m.doc(db, 'photos', docId)));
+      deletePromises.push(docRef.delete());
       return Promise.all(deletePromises);
     });
   },
 
   addTag: function(tagName) {
-    var m = window.firebaseModules;
-    return m.addDoc(m.collection(window.firebaseDB, 'tags'), {
+    return window.firebaseDB.collection('tags').add({
       tagName: tagName,
-      createdAt: m.serverTimestamp()
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
   },
 
   updateTag: function(tagId, tagName) {
-    var m = window.firebaseModules;
-    return m.updateDoc(m.doc(window.firebaseDB, 'tags', tagId), { tagName: tagName });
+    return window.firebaseDB.collection('tags').doc(tagId).update({ tagName: tagName });
   },
 
   deleteTag: function(tagId) {
-    var m = window.firebaseModules;
     var self = this;
-    return m.deleteDoc(m.doc(window.firebaseDB, 'tags', tagId)).then(function() {
+    return window.firebaseDB.collection('tags').doc(tagId).delete().then(function() {
       var affected = self.photos.filter(function(p) { return (p.tags || []).indexOf(tagId) !== -1; });
       var updates = affected.map(function(photo) {
         return self.updatePhoto(photo.docId, {
@@ -1826,9 +1803,9 @@ const AuthManager = {
   },
   async verifyAdmin(password) {
     try {
-      if (!window.firebaseModules) { alert('Firebase 未就绪'); return; }
+      if (!window.firebaseReady) { alert('Firebase 未就绪'); return; }
       var adminEmail = sessionStorage.getItem('adminEmail') || 'xieqing0111@gmail.com';
-      await window.firebaseModules.signInWithEmailAndPassword(window.firebaseAuth, adminEmail, password);
+      await firebase.auth().signInWithEmailAndPassword(adminEmail, password);
       this.failedAttempts = 0;
       this.setRole('admin');
     } catch (err) {
@@ -1854,7 +1831,7 @@ const AuthManager = {
     this.lockTimer = setInterval(function() { s--; cd.textContent = s; if (s <= 0) { clearInterval(AuthManager.lockTimer); btn.disabled = false; msg.classList.remove('visible'); AuthManager.failedAttempts = 0; } }, 1000);
   },
   logout() {
-    if (window.firebaseModules && window.firebaseAuth) window.firebaseModules.signOut(window.firebaseAuth);
+    if (window.firebaseReady) firebase.auth().signOut();
     sessionStorage.removeItem('role'); sessionStorage.removeItem('unlockedPhotos');
     this.currentRole = null; this.showModal();
     window.dispatchEvent(new CustomEvent('role-changed', { detail: { role: null } }));
@@ -2262,7 +2239,7 @@ var UnlockManager = {
     var photo = DataAccess.photos.find(function(p) { return p.docId === UnlockManager.pendingPhotoId; });
     if (!photo) return;
     var self = this;
-    fetch(GitHubAPI.toRawUrl(photo.storagePath)).then(function(resp) {
+    fetch(photo.storagePath).then(function(resp) {
       if (!resp.ok) throw new Error('Fetch failed');
       return resp.blob();
     }).then(function(blob) {
@@ -2307,14 +2284,13 @@ document.getElementById('settings-overlay').addEventListener('click', function()
   document.getElementById('settings-overlay').classList.remove('active');
 });
 document.getElementById('btn-save-password').addEventListener('click', function() {
-  var m = window.firebaseModules;
   var newPw = document.getElementById('settings-new-pw').value;
   var confirmPw = document.getElementById('settings-confirm-pw').value;
   if (newPw.length < 4) { alert('密码至少 4 位'); return; }
   if (newPw !== confirmPw) { alert('两次输入的密码不一致'); return; }
-  var user = window.firebaseAuth.currentUser;
+  var user = firebase.auth().currentUser;
   if (!user) { alert('请先登录'); return; }
-  m.updatePassword(user, newPw).then(function() {
+  user.updatePassword(newPw).then(function() {
     alert('密码修改成功，请重新登录');
     AuthManager.logout();
     document.getElementById('settings-panel').classList.remove('active');
@@ -2355,7 +2331,7 @@ window.addEventListener('firebase-ready', function() {
 });
 // Fallback: ensure identity modal is interactive even if Firebase CDN is slow
 setTimeout(function() {
-  if (!window.firebaseApp) {
+  if (!window.firebaseReady) {
     console.log('Firebase not available — site running in static mode');
   }
 }, 3000);
