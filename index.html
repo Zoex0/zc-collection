@@ -1777,23 +1777,30 @@ var DataAccess = {
     return window.firebaseDB.collection('tags').doc(tagId).update({ tagName: tagName });
   },
 
-  deleteTag: function(tagId) {
+  deleteTag: function(tagId, tagName) {
     var self = this;
     return window.firebaseDB.collection('tags').doc(tagId).delete().then(function() {
-      var affected = self.photos.filter(function(p) { return (p.tags || []).indexOf(tagId) !== -1; });
+      // 同时匹配 tag ID 和标签名（兼容新旧数据）
+      var affected = self.photos.filter(function(p) {
+        var tags = p.tags || [];
+        return tags.indexOf(tagId) !== -1 || (tagName && tags.indexOf(tagName) !== -1);
+      });
       var updates = affected.map(function(photo) {
         return self.updatePhoto(photo.docId, {
-          tags: photo.tags.filter(function(t) { return t !== tagId; }),
+          tags: (photo.tags || []).filter(function(t) { return t !== tagId && t !== tagName; }),
           _expectedVersion: photo.version
-        });
+        }).catch(function(err) { console.warn('Failed to clean tag from photo:', photo.docId, err); });
       });
       return Promise.all(updates);
     });
   },
 
-  getPhotoCount: function(tagId) {
+  getPhotoCount: function(tagId, tagName) {
     if (!tagId) return this.photos.length;
-    return this.photos.filter(function(p) { return (p.tags || []).indexOf(tagId) !== -1; }).length;
+    return this.photos.filter(function(p) {
+      var tags = p.tags || [];
+      return tags.indexOf(tagId) !== -1 || (tagName && tags.indexOf(tagName) !== -1);
+    }).length;
   }
 };
 </script>
@@ -2207,7 +2214,7 @@ var TagManager = {
   render: function() {
     var list = document.getElementById('tag-list');
     var tags = DataAccess.tags.slice().sort(function(a, b) {
-      return DataAccess.getPhotoCount(b.tagId) - DataAccess.getPhotoCount(a.tagId);
+      return DataAccess.getPhotoCount(b.tagId, b.tagName) - DataAccess.getPhotoCount(a.tagId, a.tagName);
     });
     if (tags.length === 0) {
       list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-dim);font-size:13px">还没有标签，在下方创建</div>';
@@ -2216,7 +2223,7 @@ var TagManager = {
     list.innerHTML = tags.map(function(tag) {
       return '<div class="tag-list-item" data-id="' + tag.tagId + '">' +
         '<div><span class="tag-list-name">' + tag.tagName + '</span>' +
-        '<span class="tag-list-count">' + DataAccess.getPhotoCount(tag.tagId) + ' 张</span></div>' +
+        '<span class="tag-list-count">' + DataAccess.getPhotoCount(tag.tagId, tag.tagName) + ' 张</span></div>' +
         '<div class="tag-list-actions">' +
         '<button onclick="TagManager.editTag(\'' + tag.tagId + '\',\'' + tag.tagName + '\')" title="编辑">✎</button>' +
         '<button onclick="TagManager.deleteTag(\'' + tag.tagId + '\',\'' + tag.tagName + '\')" title="删除">🗑</button>' +
@@ -2241,11 +2248,12 @@ var TagManager = {
     DataAccess.updateTag(tagId, newName).then(function() { TagManager.render(); });
   },
   deleteTag: function(tagId, tagName) {
-    var count = DataAccess.getPhotoCount(tagId);
+    var count = DataAccess.getPhotoCount(tagId, tagName);
     var msg = count > 0 ? '该标签下有 ' + count + ' 张照片，删除后照片将变为未分类。确定删除？' : '确定删除标签「' + tagName + '」？';
     if (!confirm(msg)) return;
-    DataAccess.deleteTag(tagId).then(function() {
+    DataAccess.deleteTag(tagId, tagName).then(function() {
       TagManager.render();
+      if (typeof renderAll === 'function') renderAll();
       if (typeof plausible === 'function') plausible('tag_delete', {props: {tag_name: tagName, affected_photos: count}});
     });
   }
