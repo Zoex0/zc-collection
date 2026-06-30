@@ -1003,19 +1003,9 @@
       timeline.style.display = '';
     }
 
-    // Re-attach lightbox click handlers and update lightbox photo list
+    // 更新 Lightbox 图片列表（点击事件由 timeline 委托处理，无需重复绑定）
     allPhotoSrcs.length = 0;
     filteredGroups.forEach(g => g.photos.forEach(p => allPhotoSrcs.push(p.src)));
-
-    document.querySelectorAll('.photo-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const idx = parseInt(card.dataset.index, 10);
-        openLightbox(idx);
-        if (typeof plausible === 'function') {
-          plausible('photo_click', {props: {index: idx + 1}});
-        }
-      });
-    });
 
     // Re-observe fade-up animations
     document.querySelectorAll('.fade-up').forEach(el => {
@@ -1187,26 +1177,6 @@
     }).join('');
 
     timeline.innerHTML = groupsHTML;
-
-    // Wire up click handlers
-    document.querySelectorAll('.photo-card').forEach(function(card) {
-      card.addEventListener('click', function() {
-        var docId = card.dataset.docId;
-        var photo = DataAccess && DataAccess.photos ? DataAccess.photos.find(function(p) { return p.docId === docId; }) : null;
-
-        // If locked, show unlock prompt
-        if (card.classList.contains('locked')) {
-          if (typeof UnlockManager !== 'undefined' && docId) {
-            UnlockManager.showPrompt(docId);
-          }
-          return;
-        }
-
-        var idx = parseInt(card.dataset.index, 10);
-        openLightbox(idx);
-        if (typeof plausible === 'function') plausible('photo_click', {props: {index: idx + 1}});
-      });
-    });
   }
 
   function renderFooter() {
@@ -1263,22 +1233,41 @@
   }
 
   function updateLightbox() {
-    document.getElementById('lightbox-img').src = allPhotoSrcs[currentLightboxIndex];
-    document.getElementById('lightbox-download').href = allPhotoSrcs[currentLightboxIndex];
+    var imgEl = document.getElementById('lightbox-img');
+    var src = allPhotoSrcs[currentLightboxIndex];
+    // 加密照片：如果图片加载失败（.bin 等加密文件），回退到缩略图
+    imgEl.onerror = function() {
+      var photos = window.currentPhotos || photoData;
+      var photo = photos[currentLightboxIndex];
+      if (photo && photo.encrypted && photo.thumbnailPath) {
+        imgEl.onerror = null;
+        imgEl.src = photo.thumbnailPath;
+      }
+    };
+    imgEl.src = src;
+    document.getElementById('lightbox-download').href = src;
     const current = String(currentLightboxIndex + 1).padStart(2, '0');
     const total = String(allPhotoSrcs.length).padStart(2, '0');
     document.getElementById('lightbox-counter').textContent = current + ' / ' + total;
   }
 
-  // Attach click handlers to photo cards
-  document.querySelectorAll('.photo-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const idx = parseInt(card.dataset.index, 10);
-      openLightbox(idx);
-      if (typeof plausible === 'function') {
-        plausible('photo_click', {props: {index: idx + 1}});
+  // 使用事件委托处理照片卡片点击（避免多次 render 导致重复绑定）
+  document.getElementById('timeline').addEventListener('click', function(e) {
+    var card = e.target.closest('.photo-card');
+    if (!card) return;
+    var docId = card.dataset.docId;
+
+    // 如果照片处于加锁状态，弹出解锁提示
+    if (card.classList.contains('locked')) {
+      if (typeof UnlockManager !== 'undefined' && docId) {
+        UnlockManager.showPrompt(docId);
       }
-    });
+      return;
+    }
+
+    var idx = parseInt(card.dataset.index, 10);
+    openLightbox(idx);
+    if (typeof plausible === 'function') plausible('photo_click', {props: {index: idx + 1}});
   });
 
   // Lightbox button handlers
@@ -2254,6 +2243,11 @@ var UnlockManager = {
           img.dataset.decryptedSrc = decryptedUrl;
           var lockOv = card.querySelector('.lock-overlay');
           if (lockOv) lockOv.remove();
+          // 更新 Lightbox 图片列表，使大图也显示解密后的图片
+          var cardIdx = parseInt(card.dataset.index, 10);
+          if (!isNaN(cardIdx) && typeof allPhotoSrcs !== 'undefined') {
+            allPhotoSrcs[cardIdx] = decryptedUrl;
+          }
         }
         document.getElementById('unlock-overlay').classList.remove('active');
         if (typeof plausible === 'function') plausible('photo_unlock', {props: {success: true}});
@@ -2316,7 +2310,15 @@ function deletePhoto(docId, name) {
 
 // ===== PHOTOS DATA LISTENER =====
 window.addEventListener('photos-updated', function(e) {
-  if (e.detail && e.detail.length > 0) window.currentPhotos = e.detail;
+  if (e.detail && e.detail.length > 0) {
+    // 合并静态照片与 Firestore 数据，确保历史照片始终显示
+    var merged = e.detail.slice();
+    photoData.forEach(function(sp) {
+      var exists = merged.some(function(fp) { return fp.src === sp.src; });
+      if (!exists) merged.push(sp);
+    });
+    window.currentPhotos = merged;
+  }
   if (typeof renderAll === 'function') renderAll();
 });
 window.addEventListener('tags-updated', function() {
