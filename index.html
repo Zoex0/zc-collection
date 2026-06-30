@@ -2324,11 +2324,18 @@ window.addEventListener('tags-updated', function() {
 });
 
 // ===== INITIALIZATION =====
-window.addEventListener('firebase-ready', function() {
+function initApp() {
   DataAccess.init().then(function() {
     AuthManager.init();
   });
-});
+}
+// Firebase 可能已经在之前的脚本块中初始化完毕（同步事件已错过），
+// 也可能还在加载中。两种情况都处理：
+if (window.firebaseReady) {
+  initApp();
+} else {
+  window.addEventListener('firebase-ready', initApp);
+}
 // Fallback: ensure identity modal is interactive even if Firebase CDN is slow
 setTimeout(function() {
   if (!window.firebaseReady) {
