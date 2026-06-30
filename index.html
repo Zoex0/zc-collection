@@ -1235,10 +1235,20 @@
   function updateLightbox() {
     var imgEl = document.getElementById('lightbox-img');
     var src = allPhotoSrcs[currentLightboxIndex];
+    var photos = window.currentPhotos || photoData;
+    var photo = photos[currentLightboxIndex];
+
+    // 安全防线：加密照片如果尚未解密（src 不是 blob URL），弹出解锁框
+    if (photo && photo.encrypted && photo.docId &&
+        src && src.indexOf('blob:') !== 0 &&
+        typeof UnlockManager !== 'undefined' && !UnlockManager.isUnlocked(photo.docId)) {
+      closeLightbox();
+      UnlockManager.showPrompt(photo.docId);
+      return;
+    }
+
     // 加密照片：如果图片加载失败（.bin 等加密文件），回退到缩略图
     imgEl.onerror = function() {
-      var photos = window.currentPhotos || photoData;
-      var photo = photos[currentLightboxIndex];
       if (photo && photo.encrypted && photo.thumbnailPath) {
         imgEl.onerror = null;
         imgEl.src = photo.thumbnailPath;
@@ -2217,6 +2227,10 @@ document.getElementById('new-tag-input').addEventListener('keydown', function(e)
 // ===== UNLOCK MANAGER =====
 var UnlockManager = {
   pendingPhotoId: null,
+  init: function() {
+    // Blob URL 在页面刷新后失效，清空过期的解锁状态
+    sessionStorage.removeItem('unlockedPhotos');
+  },
   getUnlockedSet: function() {
     var raw = sessionStorage.getItem('unlockedPhotos');
     return raw ? JSON.parse(raw) : [];
@@ -2340,6 +2354,7 @@ window.addEventListener('tags-updated', function() {
 
 // ===== INITIALIZATION =====
 function initApp() {
+  UnlockManager.init(); // 清除页面刷新后过期的解锁状态
   DataAccess.init().then(function() {
     AuthManager.init();
   });
