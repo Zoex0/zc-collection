@@ -6,11 +6,11 @@
 <title>ZC's Collection</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script defer data-domain="YOUR_GITHUB_PAGES_DOMAIN" src="https://plausible.io/js/script.js"></script>
-<!-- Firebase SDK -->
+<!-- Firebase SDK (esm.sh CDN — 国内可访问，专为 ESM 设计) -->
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-  import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs, getDoc, onSnapshot, query, orderBy, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { initializeApp } from "https://esm.sh/firebase@10.12.0/app";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword } from "https://esm.sh/firebase@10.12.0/auth";
+  import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDocs, getDoc, onSnapshot, query, orderBy, runTransaction, serverTimestamp } from "https://esm.sh/firebase@10.12.0/firestore";
 
   const firebaseConfig = {
     apiKey: "AIzaSyC5Yx5QHLqy47WadZXgPX_AYgExoTFdF5Y",
