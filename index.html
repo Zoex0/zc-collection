@@ -1157,7 +1157,7 @@
           } catch(e) { descHTML = ''; }
         }
 
-        return '<div class="photo-card' + lockedClass + '" data-index="' + (globalIdx - 1) + '" data-doc-id="' + docId + '">' +
+        return '<div class="photo-card' + lockedClass + '" data-index="' + (globalIdx - 1) + '" data-doc-id="' + docId + '" data-encrypted="' + (isEncrypted ? 'true' : 'false') + '">' +
           encBadge + adminActions +
           '<div class="photo-wrapper">' + lockOverlay +
           '<img class="lazy" data-src="' + lazySrc + '" alt="' + (photo.title || '') + '" src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 4 3\'%3E%3Crect fill=\'%23242019\' width=\'4\' height=\'3\'/%3E%3C/svg%3E">' +
@@ -1263,6 +1263,15 @@
         UnlockManager.showPrompt(docId);
       }
       return;
+    }
+
+    // 加密照片尚未解密时，也需要输入密码才能查看大图
+    if (card.dataset.encrypted === 'true' && docId) {
+      var alreadyUnlocked = (typeof UnlockManager !== 'undefined') && UnlockManager.isUnlocked(docId);
+      if (!alreadyUnlocked) {
+        UnlockManager.showPrompt(docId);
+        return;
+      }
     }
 
     var idx = parseInt(card.dataset.index, 10);
