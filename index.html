@@ -931,27 +931,35 @@
 
   function getAllTags(data) {
     var tagMap = {};
+    var collectionTags = (typeof DataAccess !== 'undefined') ? DataAccess.tags : [];
     data.forEach(function(p) {
       (p.tags || []).forEach(function(t) {
-        tagMap[t] = (tagMap[t] || 0) + 1;
+      // 将 tag ID 解析为标签名
+      var tagDef = collectionTags.find(function(c) { return c.tagId === t; });
+      var name = tagDef ? tagDef.tagName : t;
+        tagMap[name] = (tagMap[name] || 0) + 1;
       });
+    });
+    // 也包含 tags 集合中未被任何照片使用的标签
+    collectionTags.forEach(function(t) {
+      if (!tagMap[t.tagName]) tagMap[t.tagName] = 0;
     });
     return Object.entries(tagMap)
       .sort(function(a, b) { return b[1] - a[1]; })
       .map(function(entry) { return { name: entry[0], count: entry[1] }; });
   }
 
-  const allTags = getAllTags(photoData);
-
   function renderTagFilter() {
+    var data = window.currentPhotos || photoData;
+    var dynamicTags = getAllTags(data);
     const container = document.getElementById('tag-filter');
-    const tagsHTML = allTags.map(t =>
+    const tagsHTML = dynamicTags.map(t =>
       `<button class="tag-btn${activeTag === t.name ? ' active' : ''}" data-tag="${t.name}">${t.name}<span class="tag-count">${t.count}</span></button>`
     ).join('');
     container.innerHTML = `
       <div class="tag-filter-inner">
         <span class="tag-filter-label">Filter:</span>
-        <button class="tag-btn${activeTag === null ? ' active' : ''}" data-tag="">All<span class="tag-count">${photoData.length}</span></button>
+        <button class="tag-btn${activeTag === null ? ' active' : ''}" data-tag="">All<span class="tag-count">${data.length}</span></button>
         ${tagsHTML}
       </div>
     `;
@@ -968,7 +976,14 @@
   function getFilteredData() {
     var data = window.currentPhotos || photoData;
     if (!activeTag) return data;
-    return data.filter(function(p) { return (p.tags || []).indexOf(activeTag) !== -1; });
+    // 同时匹配标签名和标签 ID（兼容旧数据）
+    var collectionTags = (typeof DataAccess !== 'undefined') ? DataAccess.tags : [];
+    var tagDef = collectionTags.find(function(c) { return c.tagName === activeTag; });
+    var tagId = tagDef ? tagDef.tagId : activeTag;
+    return data.filter(function(p) {
+      var tags = p.tags || [];
+      return tags.indexOf(activeTag) !== -1 || tags.indexOf(tagId) !== -1;
+    });
   }
 
   function applyFilter(tagOverride) {
@@ -1098,7 +1113,8 @@
     // Mark selected tags
     setTimeout(function() {
       document.querySelectorAll('#upload-tags .tag-pill').forEach(function(pill) {
-        if ((photo.tags || []).indexOf(pill.dataset.tagId) !== -1) pill.classList.add('selected');
+        if ((photo.tags || []).indexOf(pill.dataset.tagName) !== -1 ||
+            (photo.tags || []).indexOf(pill.dataset.tagId) !== -1) pill.classList.add('selected');
       });
     }, 100);
     // Store docId for update instead of create
@@ -1920,9 +1936,26 @@ function resetUploadForm() {
 
 function renderUploadTags() {
   var container = document.getElementById('upload-tags');
-  var tags = (typeof DataAccess !== 'undefined') ? DataAccess.tags : [];
-  var pills = tags.map(function(t) {
-    return '<button class="tag-pill" data-tag-id="' + t.tagId + '">' + t.tagName + '</button>';
+  var collectionTags = (typeof DataAccess !== 'undefined') ? DataAccess.tags : [];
+  // 合并 tags 集合和照片中使用的标签
+  var allPhotoTags = [];
+  var photos = window.currentPhotos || photoData;
+  photos.forEach(function(p) {
+    (p.tags || []).forEach(function(t) {
+      var tagDef = collectionTags.find(function(c) { return c.tagId === t; });
+      var name = tagDef ? tagDef.tagName : t;
+      if (allPhotoTags.indexOf(name) === -1) allPhotoTags.push(name);
+    });
+  });
+  // 合并：集合中的标签 + 照片中使用的标签
+  var merged = collectionTags.map(function(t) { return { id: t.tagId, name: t.tagName }; });
+  allPhotoTags.forEach(function(name) {
+    if (!merged.some(function(t) { return t.name === name; })) {
+      merged.push({ id: name, name: name });
+    }
+  });
+  var pills = merged.map(function(t) {
+    return '<button class="tag-pill" data-tag-id="' + t.id + '" data-tag-name="' + t.name + '">' + t.name + '</button>';
   }).join('');
   container.innerHTML = pills + '<button class="tag-add-btn" id="btn-add-tag-inline">+ 新建</button>';
   container.querySelectorAll('.tag-pill').forEach(function(pill) {
@@ -1998,7 +2031,7 @@ function doUpload() {
     var desc = document.getElementById('upload-desc').value.trim();
     var selectedTags = [];
     document.querySelectorAll('#upload-tags .tag-pill.selected').forEach(function(el) {
-      selectedTags.push(el.dataset.tagId);
+      selectedTags.push(el.dataset.tagName);
     });
 
     var updates = {
@@ -2048,7 +2081,7 @@ function doUpload() {
   var password = encrypted ? document.getElementById('encrypt-password').value : null;
   var selectedTags = [];
   document.querySelectorAll('#upload-tags .tag-pill.selected').forEach(function(el) {
-    selectedTags.push(el.dataset.tagId);
+    selectedTags.push(el.dataset.tagName);
   });
 
   uploadState.isUploading = true;
